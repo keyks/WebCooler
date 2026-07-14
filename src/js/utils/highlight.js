@@ -72,9 +72,21 @@ function restore(s, store) {
   });
 }
 
+// 把「可能已经过一次高亮」的内容还原成纯文本，保证多次高亮幂等，
+// 不会产生 <span <span ...> 的坏嵌套。
+function stripHighlight(s) {
+  // 1) 去掉所有 <span class="tok-..."> 开标签与 </span> 闭标签（保留内部文字）
+  let r = s.replace(/<span class="tok-[^"]*">/g, '').replace(/<\/span>/g, '');
+  // 2) 还原之前被转义的符号（&lt; &gt; &amp; &quot;），交给后续高亮重新正确转义
+  r = r.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  return r;
+}
+
 export function highlight(code, lang) {
-  if (lang === 'html') return highlightHtml(code);
-  if (lang === 'css') return highlightCss(code);
-  if (lang === 'js') return highlightJs(code);
-  return escapeHtml(code);
+  // 防御：若输入里已含高亮 span，先还原为纯文本再高亮，保证幂等
+  const raw = /class="tok-/.test(code) ? stripHighlight(code) : code;
+  if (lang === 'html') return highlightHtml(raw);
+  if (lang === 'css') return highlightCss(raw);
+  if (lang === 'js') return highlightJs(raw);
+  return escapeHtml(raw);
 }

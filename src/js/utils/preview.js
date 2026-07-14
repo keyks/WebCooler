@@ -156,12 +156,13 @@ const IFRAME_RUNTIME = `
 <script>
 (function(){
   var _roundEls = null;
-  // 收集「原本就带圆角」的元素（模板作者声明了 border-radius > 0 的那些）。
-  // 圆角滑块只调整这些元素，绝不给纯文字/输入框等无圆角元素强加圆角。
+  // 圆角滑块只作用于「视觉容器/卡片」类元素，绝不波及表单控件等交互元素。
+  var NO_ROUND = 'INPUT,BUTTON,SELECT,TEXTAREA,IMG,CODE,PRE,LABEL,OPTION,SVG,CANVAS,VIDEO,AUDIO';
   function collectRoundEls(){
     var out = [];
     var all = document.querySelectorAll('#wc-root, #wc-root *');
     all.forEach(function(el){
+      if(el.matches && el.matches(NO_ROUND)) return; // 排除表单/媒体等交互元素
       try{
         var r = getComputedStyle(el).borderRadius || '';
         // 有任意非 0 圆角即纳入（排除 '0px'、''、'0px 0px ...'）
@@ -292,7 +293,7 @@ export function buildCode(t, params = {}) {
   let override = '\n/* WebCooler 实时参数（设计 token） */\n';
   override += `:root{\n  --wc-c1: ${c1 || tokens.c1};\n  --wc-c2: ${c2 || tokens.c2};\n}`;
   if (bg) override += `\nbody{background:${bg} !important}`;
-  if (radius != null) override += `\n#wc-root *{border-radius:${radius}px !important}`;
+  if (radius != null) override += `\n#wc-root div,#wc-root section,#wc-root article,#wc-root aside,#wc-root nav,#wc-root main,#wc-root header,#wc-root footer,#wc-root ul,#wc-root li,#wc-root span,#wc-root a{border-radius:${radius}px !important}`;
   if (speed !== 1) override += `\n/* 动画速度：${speed.toFixed(1)}×（数值越小越慢） */`;
   css += override;
 
