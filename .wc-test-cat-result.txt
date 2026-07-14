@@ -1,0 +1,5 @@
+A1 当前页: http://localhost:4174/categories.html?cat=mouse
+A2 点击后URL: http://localhost:4174/detail.html?id=ms-hover-color
+A3 wc_back: /categories.html?cat=mouse | referrer: http://localhost:4174/categories.html?cat=mouse
+A4 返回按钮存在: 1
+A5 点返回后URL: http://localhost:4174/categories.html?cat=mouse
