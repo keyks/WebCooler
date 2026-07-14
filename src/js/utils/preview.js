@@ -164,14 +164,34 @@ const IFRAME_RUNTIME = `
     all.forEach(function(el){
       if(el.matches && el.matches(NO_ROUND)) return; // 排除表单/媒体等交互元素
       try{
-        var r = getComputedStyle(el).borderRadius || '';
+        var cs = getComputedStyle(el);
+        var r = cs.borderRadius || '';
         // 有任意非 0 圆角即纳入（排除 '0px'、''、'0px 0px ...'）
-        if(r && /[1-9]/.test(r)){
-          // 排除「语义性圆形」：border-radius >= 50% 的元素（如圆形进度/头像），
-          // 其圆角是核心视觉，被滑块改成固定 px 会破坏造型，故保持原样。
-          if(parseFloat(r) >= 50) return;
-          out.push(el);
-        }
+        if(!(r && /[1-9]/.test(r))) return;
+
+        // ── 排除「语义性圆形/胶囊」──
+        // 关键：getComputedStyle 会把 border-radius:50% 折算成「像素值」（如 90px 圆
+        // 会返回 45px），因此不能只看数值 >=50。改用「几何判断」：只要任一角的圆
+        // 半径 >= 元素较短边的一半，即视为圆形/胶囊，其圆角是核心造型，保持原样。
+        var w = el.offsetWidth || el.clientWidth || 0;
+        var h = el.offsetHeight || el.clientHeight || 0;
+        var half = Math.min(w, h) / 2;
+        var maxR = 0;
+        (cs.borderTopLeftRadius + ' ' + cs.borderTopRightRadius + ' ' +
+         cs.borderBottomLeftRadius + ' ' + cs.borderBottomRightRadius)
+          .split(/\s+/).forEach(function(v){
+            var n = parseFloat(v);
+            if(!isNaN(n) && n > maxR) maxR = n;
+          });
+        // 半圆及以上（含轻微取整误差）→ 语义圆形，跳过
+        if(half > 0 && maxR >= half - 0.5) return;
+
+        // ── 排除「背景为渐变/图像绘制造型」的元素 ──
+        // 如 conic-gradient 画的进度环，改圆角会破坏其视觉，保持原样。
+        var bg = cs.backgroundImage || '';
+        if(/gradient|url\(/i.test(bg)) return;
+
+        out.push(el);
       }catch(e){}
     });
     return out;
@@ -182,7 +202,10 @@ const IFRAME_RUNTIME = `
     if(p.size!=null || p.x!=null || p.y!=null){
       var s = p.size!=null?p.size:1, x=p.x!=null?p.x:0, y=p.y!=null?p.y:0;
       var rootEl = document.getElementById('wc-root');
-      if(rootEl) rootEl.style.transform='scale('+s+') translate('+x+'px,'+y+'px)';
+      if(rootEl){
+        rootEl.style.transformOrigin = 'center center';
+        rootEl.style.transform = 'scale('+s+') translate('+x+'px,'+y+'px)';
+      }
     }
     if(p.bg){ document.body.style.background = p.bg; }
     // radius 只有在用户主动调整（非 null/undefined）时才应用，
@@ -279,6 +302,28 @@ export async function copyText(text) {
   }
 }
 
+// 从 CSS 中提取「声明了圆形/胶囊圆角」的选择器（border-radius:50% 或 >=999px）。
+// 用于导出代码时保护这些语义造型不被通用圆角覆盖。
+function extractRoundSelectors(css) {
+  const out = [];
+  if (!css) return out;
+  // 匹配每个规则块：selector { ... }
+  const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+  let m;
+  while ((m = ruleRe.exec(css))) {
+    const selector = m[1].trim();
+    const body = m[2];
+    const brMatch = /border-radius\s*:\s*([^;]+)/i.exec(body);
+    if (!brMatch) continue;
+    const val = brMatch[1].trim();
+    // 圆形（50%+）或大胶囊圆角（>=999px）视为语义造型
+    if (/(^|[^0-9])(5[0-9]|[6-9][0-9]|100)%/.test(val) || /(999|[1-9]\d{3,})px/.test(val)) {
+      out.push(selector);
+    }
+  }
+  return out;
+}
+
 // 把控制参数合并进模板源码，生成"所见即所得"的可复制代码。
 // 返回 { html, css, js } 三个字符串。
 // 颜色按「token 变量」写入，与预览效果 100% 一致且只影响目标对象。
@@ -300,7 +345,16 @@ export function buildCode(t, params = {}) {
   let override = '\n/* WebCooler 实时参数（设计 token） */\n';
   override += `:root{\n  --wc-c1: ${c1 || tokens.c1};\n  --wc-c2: ${c2 || tokens.c2};\n}`;
   if (bg) override += `\nbody{background:${bg} !important}`;
-  if (radius != null) override += `\n#wc-root div,#wc-root section,#wc-root article,#wc-root aside,#wc-root nav,#wc-root main,#wc-root header,#wc-root footer,#wc-root ul,#wc-root li,#wc-root span,#wc-root a{border-radius:${radius}px !important}`;
+  if (radius != null) {
+    override += `\n#wc-root div,#wc-root section,#wc-root article,#wc-root aside,#wc-root nav,#wc-root main,#wc-root header,#wc-root footer,#wc-root ul,#wc-root li,#wc-root span,#wc-root a{border-radius:${radius}px !important}`;
+    // 保护「语义性圆形/胶囊」：原 CSS 中声明了 border-radius:50%（或 9999px 等大圆角）
+    // 的选择器，其圆角是核心造型，不应被上面的通用圆角覆盖。为它们补一条恢复规则。
+    const roundSelectors = extractRoundSelectors(t.css || '');
+    if (roundSelectors.length) {
+      const sel = roundSelectors.map(s => `#wc-root ${s}`).join(',');
+      override += `\n/* 保持圆形/胶囊造型不被圆角滑块破坏 */\n${sel}{border-radius:50% !important}`;
+    }
+  }
   if (speed !== 1) override += `\n/* 动画速度：${speed.toFixed(1)}×（数值越小越慢） */`;
   css += override;
 
