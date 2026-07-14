@@ -220,13 +220,57 @@ const IFRAME_RUNTIME = `
     if(p.c1){ root.style.setProperty('--wc-c1', p.c1); }
     if(p.c2){ root.style.setProperty('--wc-c2', p.c2); }
   }
+  // ── 自定义「专属控制项」应用：按 selector + prop 精确设置，绝不误伤 ──
+  // patch = { key, selector, prop, value, toggle }
+  var _ctrlStyle = null;
+  function ensureCtrlStyle(){
+    if(!_ctrlStyle){
+      _ctrlStyle = document.createElement('style');
+      _ctrlStyle.id = 'wc-ctrl-style';
+      document.head.appendChild(_ctrlStyle);
+    }
+    return _ctrlStyle;
+  }
+  var _ctrlRules = {};   // key -> css 文本
+  function applyControl(p){
+    if(!p || !p.selector || !p.prop) return;
+    try{
+      // 特殊属性：直接操作 DOM 而非样式
+      if(p.prop === 'checked'){
+        document.querySelectorAll(p.selector).forEach(function(el){
+          el.checked = (p.value === 'on' || p.value === true);
+          el.dispatchEvent(new Event('change',{bubbles:true}));
+        });
+        return;
+      }
+      if(p.prop === 'value'){
+        document.querySelectorAll(p.selector).forEach(function(el){
+          el.value = p.value;
+          el.dispatchEvent(new Event('input',{bubbles:true}));
+        });
+        return;
+      }
+      if(p.prop === 'content-text'){
+        document.querySelectorAll(p.selector).forEach(function(el){ el.textContent = p.value; });
+        return;
+      }
+      // 常规 CSS 属性：写入一条作用于 #wc-root 内该选择器的规则（!important 保证覆盖）
+      _ctrlRules[p.key] = '#wc-root ' + p.selector + '{' + p.prop + ':' + p.value + ' !important}';
+      var out = '';
+      for(var k in _ctrlRules){ out += _ctrlRules[k] + '\\n'; }
+      ensureCtrlStyle().textContent = out;
+    }catch(e){}
+  }
+
   window.addEventListener('message', function(e){
     var d = e.data || {};
     if(d && d.type === 'wc-params'){ apply(d.params); }
     else if(d && d.type === 'wc-speed'){ window.__wcSpeed__ = d.speed; }
+    else if(d && d.type === 'wc-control'){ applyControl(d.patch); }
   });
   // 暴露给 sandbox 内脚本直接调用（兼容旧调用路径）
   window.__wcApplyParams__ = apply;
+  window.__wcApplyControl__ = applyControl;
 })();
 <\/script>`;
 
@@ -286,6 +330,14 @@ export function applyParams(iframe, params) {
   } catch (_) {}
 }
 
+// 将「专属控制项」指令下发到 iframe（按 selector+prop 精确应用，隔离安全）。
+export function applyControl(iframe, patch) {
+  if (!iframe || !iframe.contentWindow) return;
+  try {
+    iframe.contentWindow.postMessage({ type: 'wc-control', patch }, '*');
+  } catch (_) {}
+}
+
 // 复制到剪贴板
 export async function copyText(text) {
   try {
@@ -327,8 +379,11 @@ function extractRoundSelectors(css) {
 // 把控制参数合并进模板源码，生成"所见即所得"的可复制代码。
 // 返回 { html, css, js } 三个字符串。
 // 颜色按「token 变量」写入，与预览效果 100% 一致且只影响目标对象。
+// params 额外支持：
+//   controls    : 该模板的专属控制项定义数组（来自 inferControls）
+//   ctrlValues  : { key: value } 各专属控制项当前值
 export function buildCode(t, params = {}) {
-  const { size = 1, x = 0, y = 0, radius = null, c1, c2, bg, speed = 1 } = params;
+  const { size = 1, x = 0, y = 0, radius = null, c1, c2, bg, speed = 1, controls = [], ctrlValues = {} } = params;
   const tokens = parseTokens(t);
 
   // HTML：在 #wc-root 上叠加实时变换样式
@@ -356,6 +411,42 @@ export function buildCode(t, params = {}) {
     }
   }
   if (speed !== 1) override += `\n/* 动画速度：${speed.toFixed(1)}×（数值越小越慢） */`;
+
+  // ── 专属控制项：自动结构注释 + 精确覆盖规则 ──
+  // 对每个被调节的控制项，在导出 CSS 里写入：
+  //   /* 【标签】说明——想快速改动，改这里的数值即可 */
+  //   #wc-root <selector>{ <prop>: <值> !important }
+  // 让用户一眼看懂"改哪个元素的哪个属性"，直接手改即可。
+  if (Array.isArray(controls) && controls.length) {
+    let block = '';
+    controls.forEach(c => {
+      const has = Object.prototype.hasOwnProperty.call(ctrlValues, c.key);
+      const val = has ? ctrlValues[c.key] : c.value;
+      if (c.type === 'toggle') {
+        const on = !!val;
+        block += `\n/* 【${c.label}】${c.hint || ''}（当前：${on ? '开' : '关'}） */`;
+        if (c.prop === 'animation-play-state') {
+          block += `\n#wc-root ${c.selector}{animation-play-state:${on ? c.on : c.off} !important}`;
+        } else if (c.prop === 'checked') {
+          block += `\n/* → 在 HTML 中给 ${c.selector} 添加/移除 checked 属性即可切换 */`;
+        }
+        return;
+      }
+      const cssVal = c.format ? c.format(val) : `${val}${c.unit || ''}`;
+      block += `\n/* 【${c.label}】${c.hint || ''}（当前 ${val}${c.unit || ''}，改此数值即可） */`;
+      if (c.prop === 'content-text') {
+        block += `\n/* → 直接修改 ${c.selector} 的文本内容为 "${cssVal}" */`;
+      } else if (c.prop === 'value') {
+        block += `\n/* → 直接修改 ${c.selector} 的 value 属性为 ${cssVal} */`;
+      } else {
+        block += `\n#wc-root ${c.selector}{${c.prop}:${cssVal} !important}`;
+      }
+    });
+    if (block) {
+      override += `\n\n/* ══════ 专属参数（可直接改下面的数值快速调节）══════ */${block}`;
+    }
+  }
+
   css += override;
 
   // JS：注入速度系数，保证复制后行为一致

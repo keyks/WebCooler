@@ -1,7 +1,8 @@
 import { initAppShell, toast } from '../ui.js';
 import { getById } from '../data/index.js';
 import { highlight } from '../utils/highlight.js';
-import { renderPreview, copyText, applyParams, extractParams, setDemoSpeed, buildCode } from '../utils/preview.js';
+import { renderPreview, copyText, applyParams, applyControl, extractParams, setDemoSpeed, buildCode } from '../utils/preview.js';
+import { inferControls, controlToPatch } from '../utils/controls.js';
 import { store } from '../utils/storage.js';
 
 const qs0 = new URLSearchParams(location.search);
@@ -64,6 +65,34 @@ if (!t) {
   const c1 = params.c1 || '#2f83ff';
   const c2 = params.c2 || '#8b5cf6';
 
+  // 该模板的「专属控制项」（逐个推断，贴合自身特点）
+  const controls = inferControls(t);
+  // 专属控制项当前值
+  const ctrlValues = {};
+  controls.forEach(c => { ctrlValues[c.key] = c.value; });
+
+  // 渲染单个专属控制项为一段表单 HTML
+  function renderControl(c) {
+    const cid = 'wcc-' + c.key;
+    if (c.type === 'toggle') {
+      return `<label class="text-xs text-slate-600 dark:text-slate-300 flex items-center justify-between gap-2 col-span-1 sm:col-span-2">
+        <span>✨ ${c.label}</span>
+        <input type="checkbox" id="${cid}" data-key="${c.key}" ${c.value ? 'checked' : ''} class="accent-brand-600 w-4 h-4">
+      </label>`;
+    }
+    return `<label class="text-xs text-slate-600 dark:text-slate-300">✨ ${c.label} <span id="v-${cid}">${c.value}${c.unit || ''}</span>
+      <input type="range" id="${cid}" data-key="${c.key}" min="${c.min}" max="${c.max}" step="${c.step}" value="${c.value}" class="wc-range w-full mt-1">
+    </label>`;
+  }
+  const controlsHtml = controls.length ? `
+    <div class="control-panel mt-4">
+      <h2 class="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-1">🎚 该模板专属参数</h2>
+      <p class="text-[11px] text-slate-400 mb-3">根据本卡片特点定制，拖动即可实时调节；代码框会同步写入带注释的可改动数值。</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        ${controls.map(renderControl).join('')}
+      </div>
+    </div>` : '';
+
   app.innerHTML = `
   <section class="max-w-6xl mx-auto px-4 py-8">
     <button type="button" id="wc-back" class="text-sm text-slate-500 hover:text-brand-600 cursor-pointer bg-transparent border-0 p-0">← 返回</button>
@@ -123,6 +152,7 @@ if (!t) {
             </div>
           </div>
         </div>
+        ${controlsHtml}
         ${t.html ? codeBlock('HTML', t.html, 'html', 'code-html') : ''}
         ${t.css ? codeBlock('CSS', t.css, 'css', 'code-css') : ''}
         ${t.js ? codeBlock('JavaScript', t.js, 'js', 'code-js') : ''}
@@ -170,24 +200,42 @@ if (!t) {
     const speed = parseFloat(document.getElementById('p-speed').value) || 1;
     iframe = renderPreview(previewEl, t, { autoDemo: on, speed });
     applyParams(iframe, state); // 重渲染后恢复当前参数，避免预览"回弹"
+    setTimeout(() => controls.forEach(c => applyControl(iframe, controlToPatch(c, ctrlValues[c.key]))), 60);
   });
 
   // ── 控制面板：实时改变预览（含防抖 + 撤销历史） ──
   // radius 默认 null 表示「未调整」——不会给模板元素强加圆角；
   // 仅当用户主动拖动圆角滑块后才变成具体数值并只作用于原本有圆角的元素。
-  const state = { size: 1, x: 0, y: 0, radius: null, c1, c2, bg: '', speed: 1 };
+  const state = { size: 1, x: 0, y: 0, radius: null, c1, c2, bg: '', speed: 1, controls, ctrlValues };
   let _undoStack = [];    // 撤销栈
   let _undoIdx = -1;
   const MAX_UNDO = 30;
 
   function _pushUndo(snapshot) {
     _undoStack = _undoStack.slice(0, _undoIdx + 1);
-    _undoStack.push({ ...snapshot });
+    // 深拷贝专属控制项值，保证撤销/重做能精确回滚
+    _undoStack.push({ ...snapshot, ctrlValues: { ...(snapshot.ctrlValues || {}) } });
     if (_undoStack.length > MAX_UNDO) _undoStack.shift();
     _undoIdx = _undoStack.length - 1;
   }
   function _applyState(s) {
     Object.assign(state, s);
+    // 保持 controls/ctrlValues 始终指向原始引用（buildCode 依赖它）
+    state.controls = controls;
+    state.ctrlValues = ctrlValues;
+    // 恢复专属控制项值并同步 UI + 预览
+    if (s.ctrlValues) {
+      Object.assign(ctrlValues, s.ctrlValues);
+      controls.forEach(c => {
+        const el = document.getElementById('wcc-' + c.key);
+        const v = ctrlValues[c.key];
+        if (el) {
+          if (c.type === 'toggle') el.checked = !!v;
+          else { el.value = v; const out = document.getElementById('v-wcc-' + c.key); if (out) out.textContent = v + (c.unit || ''); }
+        }
+        applyControl(iframe, controlToPatch(c, v));
+      });
+    }
     applyParams(iframe, state);
     updateCode();
     // 同步 UI 控件值
@@ -285,6 +333,45 @@ if (!t) {
     updateCode();
     _pushUndo(state);
   });
+  // ── 专属控制项：应用到预览 + 绑定事件 ──
+  // 把当前所有专属控制项的值应用到 iframe（渲染/重渲染后调用以恢复）
+  function applyAllControls() {
+    controls.forEach(c => {
+      applyControl(iframe, controlToPatch(c, ctrlValues[c.key]));
+    });
+  }
+  // 首次渲染后应用（iframe 内容需就绪，稍作延时）
+  const _applyOnLoad = () => setTimeout(applyAllControls, 60);
+  _applyOnLoad();
+
+  controls.forEach(c => {
+    const el = document.getElementById('wcc-' + c.key);
+    if (!el) return;
+    if (c.type === 'toggle') {
+      el.addEventListener('change', () => {
+        ctrlValues[c.key] = el.checked;
+        applyControl(iframe, controlToPatch(c, el.checked));
+        updateCode();
+        _pushUndo(state);
+      });
+    } else {
+      const out = document.getElementById('v-wcc-' + c.key);
+      el.addEventListener('input', () => {
+        const v = parseFloat(el.value);
+        ctrlValues[c.key] = v;
+        if (out) out.textContent = v + (c.unit || '');
+        applyControl(iframe, controlToPatch(c, v));
+        clearTimeout(_debounceTimer);
+        _debounceTimer = setTimeout(() => { updateCode(); _pushUndo(state); }, 80);
+      });
+      el.addEventListener('change', () => {
+        clearTimeout(_debounceTimer);
+        updateCode();
+        _pushUndo(state);
+      });
+    }
+  });
+
   // 初始状态入栈
   _pushUndo(state);
 
@@ -300,6 +387,16 @@ if (!t) {
     document.getElementById('v-speed').textContent='1.0×';
     setDemoSpeed(iframe, 1);
     ['v-size','v-x','v-y','v-radius'].forEach((id,i)=>document.getElementById(id).textContent=['100%','0px','0px','默认'][i]);
+    // 恢复专属控制项默认值 + 同步 UI + 重新应用
+    controls.forEach(c => {
+      ctrlValues[c.key] = c.value;
+      const el = document.getElementById('wcc-' + c.key);
+      if (el) {
+        if (c.type === 'toggle') el.checked = !!c.value;
+        else { el.value = c.value; const out = document.getElementById('v-wcc-' + c.key); if (out) out.textContent = c.value + (c.unit || ''); }
+      }
+      applyControl(iframe, controlToPatch(c, c.value));
+    });
     applyParams(iframe, state);
     updateCode();
     _pushUndo(state);
@@ -358,6 +455,7 @@ if (!t) {
     if (chk) chk.checked = false;
     iframe = renderPreview(previewEl, code, { autoDemo: false });
     applyParams(iframe, state);
+    setTimeout(() => controls.forEach(c => applyControl(iframe, controlToPatch(c, ctrlValues[c.key]))), 60);
     toast('代码已应用', 'success');
   }
   document.querySelectorAll('.wc-editable').forEach(pre => {
