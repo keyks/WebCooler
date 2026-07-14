@@ -255,18 +255,9 @@ function _renderOneMini(el) {
   el.appendChild(f);
   mountMini(f, t, true);
 
-  const card = el.closest('[data-card]');
-  if (card) {
-    // 使用 once 避免重复绑定
-    card.addEventListener('mouseenter', () => {
-      mountMini(f, t, false);
-      try { f.blur(); } catch (_) {}
-      window.focus();
-    }, { once: false });
-    card.addEventListener('mouseleave', () => {
-      mountMini(f, t, true);
-    }, { once: false });
-  }
+  // 键盘交互类卡片保持静态渲染，避免 hover 后自动演示脚本
+  // 循环播放键盘/点击动画导致"卡片自动跳转 / 来回跳转"。
+  // 因此直接以静态模式挂载，不再在 mouseenter 时切换为动态演示。
 }
 
 export function renderMiniPreviews(root = document) {

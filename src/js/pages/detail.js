@@ -82,9 +82,9 @@ if (!t) {
     <div class="grid lg:grid-cols-2 gap-6 mt-6">
       <div>
         <div class="flex items-center justify-between mb-2">
-          <h2 class="text-sm font-semibold text-slate-500 dark:text-slate-400">实时预览（自动演示 · 可直接交互）</h2>
+          <h2 class="text-sm font-semibold text-slate-500 dark:text-slate-400">实时预览（可直接交互）</h2>
           <label class="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
-            <input type="checkbox" id="auto-demo" checked class="accent-brand-600"> 自动播放
+            <input type="checkbox" id="auto-demo" class="accent-brand-600"> 自动播放
           </label>
         </div>
         <div class="preview-frame h-[58vw] max-h-[440px] sm:h-[420px]" id="preview"></div>
@@ -150,7 +150,7 @@ if (!t) {
   };
 
   const previewEl = document.getElementById('preview');
-  let iframe = renderPreview(previewEl, t, { autoDemo: true });
+  let iframe = renderPreview(previewEl, t, { autoDemo: false });
 
   // ── ResizeObserver：预览区高度自适应 ──
   if (window.ResizeObserver) {
