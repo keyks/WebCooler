@@ -248,7 +248,7 @@ function _renderOneMini(el) {
   const f = document.createElement('iframe');
   f.style.cssText = 'width:100%;height:100%;border:0;pointer-events:none';
   f.setAttribute('tabindex', '-1');
-  f.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+  f.setAttribute('sandbox', 'allow-scripts');
   f.setAttribute('loading', 'lazy');
   f.setAttribute('title', t.title || '');
   el.innerHTML = '';

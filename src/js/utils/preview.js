@@ -5,6 +5,9 @@
 //    主色/辅色「字面量」为 var(--wc-cN)，所以只影响真正使用该颜色的对象
 //  - 彻底移除早期「按全局类名暴力覆盖（如 [class*="b"]）」的写法，
 //    该写法会在拖动某一滑块时连带改动其它无关元素。
+//  - 预览 iframe 使用「纯沙箱（allow-scripts，无 allow-same-origin）」：
+//    父页面与 iframe 跨源，浏览器扩展/插件（如 intersub 等）无法注入或
+//    读取 iframe 内部 DOM，从根本上避免第三方插件污染预览。
 
 // ────────────────────────────────────────────────────────────
 // 设计 token 解析
@@ -29,7 +32,7 @@ function isNeutral(hex) {
 // 从 CSS 中解析可调节的颜色 token。
 // 策略：
 //  1) 优先使用模板自带的 tokens（结构化、最精准）：{ c1, c2, bg }
-//  2) 否则自动扫描 CSS，挑选出现频率最高、且非中性色的前若干颜色作为主/辅色
+//  2) 否则自动扫描 CSS，挑选出现顺序最先、且非中性色的前若干彩色作为主/辅色
 // 返回 { c1, c2, bg, map }：
 //   - c1/c2/bg：用于初始化滑块的默认值
 //   - map：原始颜色值 → 变量名的映射（仅包含需要被变量替换的值）
@@ -45,7 +48,6 @@ function parseTokens(t) {
     const bg = (explicit.bg || '').toLowerCase();
     if (c1) map[c1] = '--wc-c1';
     if (c2 && c2 !== c1) map[c2] = '--wc-c2';
-    // bg 仅作默认值，不参与变量替换（背景由 :root/body 直接控制）
     return {
       c1: explicit.c1 || '#2f83ff',
       c2: explicit.c2 || '#8b5cf6',
@@ -55,8 +57,6 @@ function parseTokens(t) {
   }
 
   // 2) 自动扫描：优先判定「语义主色」
-  // 规则：排除中性灰阶/黑白色；在剩余彩色中按「首次出现顺序」取主(c1)/辅(c2)。
-  // 这样能正确命中"第一个出现的彩色 = 主元素颜色"，而不会被灰度背景或文字色干扰。
   const re = /#[0-9a-fA-F]{3,8}\b/g;
   const order = [];      // 有序去重的候选彩色
   let m;
@@ -80,7 +80,6 @@ function injectVarTokens(css, map) {
   if (!css || !map || !Object.keys(map).length) return css;
   let out = css;
   for (const [raw, varName] of Object.entries(map)) {
-    // 精确匹配该颜色（含 3/6 位及带透明度形式），避免误替换子串
     const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     out = out.replace(new RegExp(escaped, 'gi'), `var(${varName})`);
   }
@@ -88,12 +87,12 @@ function injectVarTokens(css, map) {
 }
 
 // 自动演示驱动：根据模板种类模拟真实交互（仅当用户主动勾选「自动播放」时启用）。
-// 注意：演示脚本只触发「模板自身声明的交互事件」，不会修改任何设计 token，
+// 演示脚本只触发「模板自身声明的交互事件」，不会修改任何设计 token，
 // 因此不会与「实时参数控制」冲突，也不会造成"来回跳转/误改内容"。
 function demoScript(cat, id) {
   return `
   (function(){
-    var _stop = false, _rafId = null;
+    var _stop = false;
     window.__wcDemoStop__ = false;
     window.__wcDemoPause__ = function(){ _stop = true; };
     window.__wcDemoResume__ = function(){ if(_stop){_stop=false; loop();} };
@@ -151,21 +150,53 @@ function demoScript(cat, id) {
   `;
 }
 
+// iframe 内部接收参数并应用：只改 :root 变量 + #wc-root 作用域 + 可选 body 背景，
+// 绝不触碰任何具体类名/全局选择器，所以改动任一滑块都不会影响其它内容。
+const IFRAME_RUNTIME = `
+<script>
+(function(){
+  function apply(p){
+    p = p || {};
+    var root = document.documentElement;
+    if(p.size!=null || p.x!=null || p.y!=null){
+      var s = p.size!=null?p.size:1, x=p.x!=null?p.x:0, y=p.y!=null?p.y:0;
+      var rootEl = document.getElementById('wc-root');
+      if(rootEl) rootEl.style.transform='scale('+s+') translate('+x+'px,'+y+'px)';
+    }
+    if(p.bg){ document.body.style.background = p.bg; }
+    if(p.radius!=null){
+      // 仅作用于 #wc-root 内的元素，且只覆盖「圆角」这一视觉项，不影响其它样式
+      var els = document.querySelectorAll('#wc-root *');
+      els.forEach(function(el){ el.style.borderRadius = p.radius+'px'; });
+    }
+    if(p.c1){ root.style.setProperty('--wc-c1', p.c1); }
+    if(p.c2){ root.style.setProperty('--wc-c2', p.c2); }
+  }
+  window.addEventListener('message', function(e){
+    var d = e.data || {};
+    if(d && d.type === 'wc-params'){ apply(d.params); }
+    else if(d && d.type === 'wc-speed'){ window.__wcSpeed__ = d.speed; }
+  });
+  // 暴露给 sandbox 内脚本直接调用（兼容旧调用路径）
+  window.__wcApplyParams__ = apply;
+})();
+<\/script>`;
+
 // 渲染预览沙箱。返回 iframe。
 export function renderPreview(container, t, { autoDemo = false, speed = 1 } = {}) {
   const iframe = document.createElement('iframe');
   iframe.className = 'w-full h-full border-0';
   iframe.setAttribute('tabindex', '-1');
-  iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+  // 关键：仅 allow-scripts，不授权 allow-same-origin。
+  // 这样 iframe 为不透明源，浏览器插件无法读取/注入其内部 DOM，预览不被污染。
+  iframe.setAttribute('sandbox', 'allow-scripts');
   container.innerHTML = '';
   container.appendChild(iframe);
 
   const doc = iframe.contentDocument;
   const tokens = parseTokens(t);
-  // 在 CSS 中把「主色/辅色字面量」替换为变量，保证颜色滑块只影响目标对象
   const cssWithVars = injectVarTokens(t.css || '', tokens.map);
 
-  // 将 token 默认值注入 :root，使 var() 有初始值
   const rootVars = `:root{--wc-c1:${tokens.c1};--wc-c2:${tokens.c2};--wc-size:1;--wc-x:0px;--wc-y:0px;--wc-radius:12px;--wc-bg:#ffffff;}`;
   const base = `<style>*{box-sizing:border-box}html,body{margin:0;height:100%}
 ${rootVars}</style>`;
@@ -175,6 +206,7 @@ ${rootVars}</style>`;
 <div id="wc-root">${t.html || ''}</div>
 <script>window.__wcSpeed__=${speed};<\/script>
 <script>${t.js || ''}<\/script>
+${IFRAME_RUNTIME}
 </body></html>`;
   doc.open();
   doc.write(base + full);
@@ -191,34 +223,17 @@ ${rootVars}</style>`;
 // 实时调整演示速度（speed 越大越快；可小数变慢）
 export function setDemoSpeed(iframe, speed) {
   try {
-    if (iframe && iframe.contentWindow) iframe.contentWindow.__wcSpeed__ = speed;
+    if (iframe && iframe.contentWindow) iframe.contentWindow.postMessage({ type: 'wc-speed', speed }, '*');
   } catch (_) {}
 }
 
-// 将控制参数应用到 iframe。
-// 关键优化：只通过「CSS 变量 + #wc-root 作用域 transform」生效，
-// 绝不触碰任何具体类名，因此改动某一滑块时不会影响其它内容。
+// 将控制参数应用到 iframe（通过 postMessage，跨源安全通信）。
+// 改动某一滑块时只影响目标对象，绝不误伤其它内容。
 export function applyParams(iframe, params) {
-  if (!iframe || !iframe.contentDocument) return;
-  const doc = iframe.contentDocument;
-  let style = doc.getElementById('wc-override');
-  if (!style) {
-    style = doc.createElement('style');
-    style.id = 'wc-override';
-    doc.head.appendChild(style);
-  }
-  const { size = 1, x = 0, y = 0, c1, c2, bg, radius } = params;
-  let rules = '';
-  // 1) 布局变换：仅作用于 #wc-root 作用域
-  rules += `#wc-root{transform:scale(${size}) translate(${x}px,${y}px);transform-origin:center center;transition:transform .2s}`;
-  // 2) 背景：仅作用于 body（预览画布），不影响模板内部元素
-  if (bg) rules += `body{background:${bg} !important}`;
-  // 3) 圆角：作用于所有带 class 的元素（圆角是全局视觉统一项，符合预期）
-  if (radius != null) rules += `*[class]{border-radius:${radius}px !important}`;
-  // 4) 颜色：仅更新 :root 变量，模板中 var(--wc-cN) 处才随之变化
-  if (c1) rules += `:root{--wc-c1:${c1}}`;
-  if (c2) rules += `:root{--wc-c2:${c2}}`;
-  style.textContent = rules;
+  if (!iframe || !iframe.contentWindow) return;
+  try {
+    iframe.contentWindow.postMessage({ type: 'wc-params', params: params }, '*');
+  } catch (_) {}
 }
 
 // 复制到剪贴板
@@ -239,7 +254,7 @@ export async function copyText(text) {
 
 // 把控制参数合并进模板源码，生成"所见即所得"的可复制代码。
 // 返回 { html, css, js } 三个字符串。
-// 优化点：颜色按「token 变量」写入，与预览效果 100% 一致且只影响目标对象。
+// 颜色按「token 变量」写入，与预览效果 100% 一致且只影响目标对象。
 export function buildCode(t, params = {}) {
   const { size = 1, x = 0, y = 0, radius = 12, c1, c2, bg, speed = 1 } = params;
   const tokens = parseTokens(t);
@@ -258,7 +273,7 @@ export function buildCode(t, params = {}) {
   let override = '\n/* WebCooler 实时参数（设计 token） */\n';
   override += `:root{\n  --wc-c1: ${c1 || tokens.c1};\n  --wc-c2: ${c2 || tokens.c2};\n}`;
   if (bg) override += `\nbody{background:${bg} !important}`;
-  if (radius != null) override += `\n*[class]{border-radius:${radius}px !important}`;
+  if (radius != null) override += `\n#wc-root *{border-radius:${radius}px !important}`;
   if (speed !== 1) override += `\n/* 动画速度：${speed.toFixed(1)}×（数值越小越慢） */`;
   css += override;
 

@@ -167,12 +167,6 @@ if (!t) {
   // 自动播放开关
   document.getElementById('auto-demo').addEventListener('change', e => {
     const on = e.target.checked;
-    try {
-      const doc = iframe.contentDocument;
-      if (doc && doc.defaultView) {
-        doc.defaultView.__wcDemoStop__ = !on;
-      }
-    } catch (_) {}
     const speed = parseFloat(document.getElementById('p-speed').value) || 1;
     iframe = renderPreview(previewEl, t, { autoDemo: on, speed });
     applyParams(iframe, state); // 重渲染后恢复当前参数，避免预览"回弹"
