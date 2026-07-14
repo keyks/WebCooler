@@ -49,7 +49,7 @@ import{S as e,m as d,n as a,T as l}from"./index-DrRY-Jl8-612mL4fq.js";e("downloa
 
     <div class="wc-card p-6">
       <h2 class="text-xl font-bold mb-3">🛠 技术栈</h2>
-      <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">WebCooler 由 <b>CodeBuddy SDK</b> 与 <b>codebuddy-chat-web</b> 驱动构建，模板以原生 HTML / CSS / JS 编写，未绑定任何三方框架，方便你无缝接入任意技术栈。</p>
+      <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">WebCooler 由 keysk 开发，仅供个人学习使用，模板以原生 HTML / CSS / JS 编写，未绑定任何三方框架，方便你无缝接入任意技术栈。如有侵权请联系 727418053@qq.com。</p>
     </div>
   </div>
 
@@ -57,5 +57,5 @@ import{S as e,m as d,n as a,T as l}from"./index-DrRY-Jl8-612mL4fq.js";e("downloa
     <a href="index.html" class="px-6 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-medium shadow-lg shadow-brand-500/30">返回首页，开始探索</a>
   </div>
 
-  <p class="text-center text-xs text-slate-400 dark:text-slate-500 mt-10">© 2026 WebCooler — 使用 CodeBuddy SDK 与 codebuddy-chat-web 构建</p>
+  <p class="text-center text-xs text-slate-400 dark:text-slate-500 mt-10">© 2026 WebCooler — 由 keysk 开发，仅供个人学习使用。如有侵权请联系 727418053@qq.com</p>
 </section>`;

@@ -24,7 +24,7 @@
       <div class="flex flex-wrap justify-center gap-2 mt-4">
         ${p.map(t=>`<span class="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-xs">${t.icon} ${t.name}</span>`).join("")}
       </div>
-      <p class="mt-4 text-xs">© 2026 WebCooler — 使用 CodeBuddy SDK 与 codebuddy-chat-web 构建</p>
+      <p class="mt-4 text-xs">© 2026 WebCooler — 由 keysk 开发，仅供个人学习使用。如有侵权请联系 727418053@qq.com</p>
     </div>
   </footer>`}function L(t,{fav:e=!1,from:i="",back:a=""}={}){const s=new URLSearchParams;return s.set("id",t.id),i&&s.set("from",i),a&&s.set("back",a),`
   <a href="detail.html?${s.toString()}" class="group wc-card p-4 block hover:-translate-y-1" data-card="${t.id}">
