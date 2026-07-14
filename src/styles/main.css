@@ -1,0 +1,290 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --code-bg: #0f172a;
+  --brand-500: #2f83ff;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+}
+
+/* ---------- 主题切换过渡 ---------- */
+.theme-transition * {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+/* ---------- 通用卡片（含 3D 悬停 + 玻璃拟态） ---------- */
+.wc-card {
+  @apply bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-all duration-300;
+  transform-style: preserve-3d;
+  perspective: 800px;
+}
+/* 3D 悬停：鼠标位置微倾斜 + 上浮 */
+.wc-card[data-card-3d] {
+  transition: transform 0.15s ease-out, box-shadow 0.3s ease;
+}
+.wc-card[data-card-3d]:hover {
+  box-shadow: 0 20px 40px -12px rgba(47,131,255,.18), 0 4px 12px rgba(0,0,0,.08);
+  @apply dark:shadow-[0_20px_40px_-12px_rgba(47,131,255,.12)];
+}
+/* 玻璃拟态变体 */
+.wc-card-glass {
+  @apply bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border border-white/20 dark:border-slate-700/30;
+}
+
+/* ---------- 骨架屏（预览加载占位） ---------- */
+.wc-skeleton {
+  background: linear-gradient(110deg, #f1f5f9 30%, #e2e8f0 50%, #f1f5f9 70%);
+  background-size: 200% 100%;
+  animation: wc-shimmer 1.5s ease-in-out infinite;
+  border-radius: inherit;
+}
+.dark .wc-skeleton {
+  background: linear-gradient(110deg, #1e293b 30%, #334155 50%, #1e293b 70%);
+  background-size: 200% 100%;
+}
+@keyframes wc-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ---------- 隐藏滚动条工具类 ---------- */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
+/* ---------- 导航活跃指示器 ---------- */
+.nav-indicator {
+  position: relative;
+}
+.nav-indicator::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%) scaleX(0);
+  width: 60%;
+  height: 2px;
+  background: var(--brand-500);
+  border-radius: 999px;
+  transition: transform 0.25s ease;
+}
+.nav-indicator:hover::after,
+.nav-indicator.active::after {
+  transform: translateX(-50%) scaleX(1);
+}
+
+/* ---------- 移动端触摸优化 ---------- */
+@media (hover: none) and (pointer: coarse) {
+  /* 触摸设备：禁用 hover 动效，使用 active 替代 */
+  .wc-card[data-card-3d]:active {
+    transform: scale(0.97);
+    transition: transform 0.1s ease;
+  }
+  /* 增大触摸目标 */
+  .cat, button, a {
+    min-height: 40px;
+    min-width: 40px;
+  }
+}
+
+/* ---------- 品牌色脉冲徽标 ---------- */
+@keyframes brand-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(47,131,255,.4); }
+  50% { box-shadow: 0 0 0 6px rgba(47,131,255,0); }
+}
+.brand-pulse {
+  animation: brand-pulse 2s ease-in-out infinite;
+}
+
+/* ---------- 详情页实时参数控制面板 ---------- */
+.control-panel {
+  @apply bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl p-4;
+}
+.wc-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  background: #e2e8f0;
+  outline: none;
+}
+.dark .wc-range { background: #334155; }
+.wc-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #2f83ff;
+  cursor: pointer;
+  box-shadow: 0 0 0 3px rgba(47,131,255,.25);
+}
+.wc-range::-moz-range-thumb {
+  width: 16px; height: 16px; border: 0; border-radius: 50%;
+  background: #2f83ff; cursor: pointer;
+}
+.wc-color {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  padding: 2px;
+}
+.dark .wc-color { border-color: #475569; background: #1e293b; }
+
+/* ---------- 代码块（含行号布局） ---------- */
+.code-block {
+  position: relative;
+  background: var(--code-bg);
+  color: #e2e8f0;
+  border-radius: 0.75rem;
+  overflow: auto;
+  font-family: '"JetBrains Mono"', Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.code-with-lines {
+  display: flex;
+}
+.code-lines {
+  flex-shrink: 0;
+  padding: 1rem 0.5rem 1rem 1rem;
+  text-align: right;
+  user-select: none;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.6;
+  border-right: 1px solid #1e293b;
+  margin-right: 0;
+}
+.code-lines .code-line-num {
+  display: block;
+}
+.code-with-lines .wc-editable {
+  flex: 1;
+  padding: 1rem 1.25rem;
+}
+.code-block pre {
+  margin: 0;
+  padding: 1rem 1.25rem;
+  white-space: pre;
+}
+/* 可编辑代码块 */
+.wc-editable {
+  outline: none;
+  cursor: text;
+  tab-size: 2;
+}
+.wc-editable:focus {
+  box-shadow: inset 0 0 0 2px rgba(47,131,255,.5);
+}
+.tok-tag { color: #7dd3fc; }
+.tok-attr { color: #fca5a5; }
+.tok-string { color: #86efac; }
+.tok-comment { color: #64748b; font-style: italic; }
+.tok-keyword { color: #c4b5fd; }
+.tok-fn { color: #fcd34d; }
+.tok-num { color: #fdba74; }
+
+/* ---------- 复制按钮 ---------- */
+.copy-btn {
+  @apply absolute top-2 right-2 px-3 py-1 text-xs rounded-lg bg-slate-700/80 text-slate-100 hover:bg-slate-600 transition opacity-0 group-hover:opacity-100;
+}
+
+/* ---------- 预览容器 ---------- */
+.preview-frame {
+  @apply bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700;
+  overflow: hidden;
+}
+
+/* ---------- 滚动条美化 ---------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+.dark ::-webkit-scrollbar-thumb { background: #334155; }
+
+/* ---------- 入场动画（通用 hook） ---------- */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+[data-reveal].is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---------- 鼠标跟随光点 ---------- */
+.cursor-glow {
+  position: fixed;
+  width: 22px; height: 22px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(47,131,255,0.6), transparent 70%);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  z-index: 9999;
+  transition: width 0.2s, height 0.2s;
+  mix-blend-mode: screen;
+}
+
+/* ---------- 霓虹文字 ---------- */
+.neon-text {
+  color: #fff;
+  text-shadow: 0 0 5px #2f83ff, 0 0 10px #2f83ff, 0 0 20px #2f83ff, 0 0 40px #1664f0;
+}
+.gradient-text {
+  background: linear-gradient(90deg, #2f83ff, #c084fc, #f472b6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.metal-text {
+  background: linear-gradient(180deg, #f8fafc 0%, #94a3b8 45%, #475569 55%, #e2e8f0 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.glitch {
+  position: relative;
+}
+.glitch::before, .glitch::after {
+  content: attr(data-text);
+  position: absolute; left: 0; top: 0;
+  width: 100%;
+  overflow: hidden;
+}
+.glitch::before { color: #0ff; transform: translate(-2px,0); clip-path: inset(0 0 55% 0); animation: glitch1 2s infinite linear alternate; }
+.glitch::after { color: #f0f; transform: translate(2px,0); clip-path: inset(55% 0 0 0); animation: glitch2 1.6s infinite linear alternate; }
+@keyframes glitch1 { 0%{transform:translate(-2px,0)} 100%{transform:translate(2px,-1px)} }
+@keyframes glitch2 { 0%{transform:translate(2px,0)} 100%{transform:translate(-1px,1px)} }
+
+/* ---------- 打字机 ---------- */
+.typewriter::after {
+  content: '|';
+  animation: blink 1s step-end infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ---------- 骨架屏 ---------- */
+.skeleton {
+  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 37%, #e2e8f0 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: 0.5rem;
+}
+.dark .skeleton {
+  background: linear-gradient(90deg, #1e293b 25%, #334155 37%, #1e293b 63%);
+  background-size: 400% 100%;
+}
+@keyframes shimmer { 0%{background-position:100% 0} 100%{background-position:0 0} }
