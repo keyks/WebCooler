@@ -28,10 +28,11 @@ function demoScript(cat, id) {
       const fields = [...document.querySelectorAll('input,textarea,select')];
       const area = document.querySelector('.area,.track,.glow,.smoke,.fire,.b');
       if(fields.length){
-        const f = fields[0]; f.focus();
+        const f = fields[0]; if(f.blur) f.blur(); f.readOnly=true;
         const samples=['Hello','WebCooler','你好','123','ABC','Code'];
         for(const s of samples){ f.value=s; f.dispatchEvent(new Event('input',{bubbles:true})); await sleep(sp(280)); }
         f.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+        if(f.blur) f.blur();
         return;
       }
       if((cat==='mouse' && (id||'').includes('follow')) || area){
@@ -67,6 +68,7 @@ function demoScript(cat, id) {
 export function renderPreview(container, { html, css, js, cat = '', id = '' }, { autoDemo = true, speed = 1 } = {}) {
   const iframe = document.createElement('iframe');
   iframe.className = 'w-full h-full border-0';
+  iframe.setAttribute('tabindex', '-1');
   iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
   container.innerHTML = '';
   container.appendChild(iframe);

@@ -105,7 +105,7 @@ function mountMini(f, t, staticMode) {
     async function play(){
       const fields=[...document.querySelectorAll('input,textarea')];
       const area=document.querySelector('.area,.track,.glow,.smoke,.fire');
-      if(fields.length){const f0=fields[0];f0.focus();['Hi','Web','Cool','123'].forEach(v=>{f0.value=v;f0.dispatchEvent(new Event('input',{bubbles:true}))});return;}
+      if(fields.length){const f0=fields[0];f0.blur&&f0.blur();f0.readOnly=true;['Hi','Web','Cool','123'].forEach(v=>{f0.value=v;f0.dispatchEvent(new Event('input',{bubbles:true}))});f0.blur&&f0.blur();return;}
       if(area){const r=area.getBoundingClientRect();for(let i=0;i<8;i++){area.dispatchEvent(new MouseEvent('mousemove',{clientX:r.left+r.width*(0.2+0.6*Math.random()),clientY:r.top+r.height*(0.2+0.6*Math.random()),bubbles:true}));}return;}
       const els=[...document.querySelectorAll('button,.b,.box,.card,.ring,.star,.rp,.glow,.item,.nav,.tip,.cell,.wrap,li,a,div')].filter(e=>e.offsetWidth>0);
       if(els.length){const e=els[Math.floor(Math.random()*els.length)];e.dispatchEvent(new MouseEvent('click',{bubbles:true}));}
@@ -125,6 +125,7 @@ export function renderMiniPreviews(root = document) {
     const f = document.createElement('iframe');
     // 关键：预览 iframe 始终不接收鼠标事件，让点击穿透到卡片的 <a> 链接，保证卡片可正常跳转
     f.style.cssText = 'width:100%;height:100%;border:0;pointer-events:none';
+    f.setAttribute('tabindex', '-1'); // 防止 iframe 成为键盘/滚动焦点目标
     f.setAttribute('sandbox', 'allow-scripts allow-same-origin');
     el.innerHTML = '';
     el.appendChild(f);
@@ -134,6 +135,9 @@ export function renderMiniPreviews(root = document) {
     if (card) {
       card.addEventListener('mouseenter', () => {
         mountMini(f, t, false); // 悬停卡片：开始动画（自动演示，无需 iframe 接收鼠标）
+        // 兜底：确保焦点始终停留在外层页面，避免焦点意外进入预览 iframe 导致页面乱滚动
+        try { f.blur(); } catch (_) {}
+        window.focus();
       });
       card.addEventListener('mouseleave', () => {
         mountMini(f, t, true); // 脱离卡片：恢复静态（动画停止）
