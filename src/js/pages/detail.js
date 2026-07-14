@@ -103,7 +103,7 @@ if (!t) {
             <label class="text-xs text-slate-600 dark:text-slate-300">垂直位置 <span id="v-y">0px</span>
               <input type="range" id="p-y" min="-60" max="60" step="1" value="0" class="wc-range w-full mt-1">
             </label>
-            <label class="text-xs text-slate-600 dark:text-slate-300">圆角 <span id="v-radius">12px</span>
+            <label class="text-xs text-slate-600 dark:text-slate-300">圆角 <span id="v-radius">默认</span>
               <input type="range" id="p-radius" min="0" max="40" step="1" value="12" class="wc-range w-full mt-1">
             </label>
             <label class="text-xs text-slate-600 dark:text-slate-300">动画速度 <span id="v-speed">1.0×（数值越小越慢）</span>
@@ -173,7 +173,9 @@ if (!t) {
   });
 
   // ── 控制面板：实时改变预览（含防抖 + 撤销历史） ──
-  const state = { size: 1, x: 0, y: 0, radius: 12, c1, c2, bg: '', speed: 1 };
+  // radius 默认 null 表示「未调整」——不会给模板元素强加圆角；
+  // 仅当用户主动拖动圆角滑块后才变成具体数值并只作用于原本有圆角的元素。
+  const state = { size: 1, x: 0, y: 0, radius: null, c1, c2, bg: '', speed: 1 };
   let _undoStack = [];    // 撤销栈
   let _undoIdx = -1;
   const MAX_UNDO = 30;
@@ -201,7 +203,7 @@ if (!t) {
     ['v-size','v-x','v-y','v-radius'].forEach((vid, i) => {
       const out = document.getElementById(vid);
       if (out) {
-        const vals = [Math.round(state.size*100)+'%', state.x+'px', state.y+'px', state.radius+'px'];
+        const vals = [Math.round(state.size*100)+'%', state.x+'px', state.y+'px', state.radius==null?'默认':state.radius+'px'];
         out.textContent = vals[i];
       }
     });
@@ -287,7 +289,9 @@ if (!t) {
   _pushUndo(state);
 
   document.getElementById('p-reset').addEventListener('click', () => {
-    state.size=1; state.x=0; state.y=0; state.radius=12; state.c1=c1; state.c2=c2; state.bg=''; state.speed=1;
+    state.size=1; state.x=0; state.y=0; state.c1=c1; state.c2=c2; state.bg=''; state.speed=1;
+    applyParams(iframe, { radius: 'reset' }); // 先清除已应用的圆角，恢复模板原始圆角
+    state.radius=null;
     ['p-size','p-x','p-y','p-radius'].forEach(id=>document.getElementById(id).value = id==='p-radius'?12:(id==='p-size'?1:0));
     document.getElementById('p-c1').value=c1;
     document.getElementById('p-c2').value=c2;
@@ -295,7 +299,7 @@ if (!t) {
     document.getElementById('p-speed').value=1;
     document.getElementById('v-speed').textContent='1.0×';
     setDemoSpeed(iframe, 1);
-    ['v-size','v-x','v-y','v-radius'].forEach((id,i)=>document.getElementById(id).textContent=['100%','0px','0px','12px'][i]);
+    ['v-size','v-x','v-y','v-radius'].forEach((id,i)=>document.getElementById(id).textContent=['100%','0px','0px','默认'][i]);
     applyParams(iframe, state);
     updateCode();
     _pushUndo(state);

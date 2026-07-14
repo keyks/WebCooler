@@ -155,6 +155,21 @@ function demoScript(cat, id) {
 const IFRAME_RUNTIME = `
 <script>
 (function(){
+  var _roundEls = null;
+  // 收集「原本就带圆角」的元素（模板作者声明了 border-radius > 0 的那些）。
+  // 圆角滑块只调整这些元素，绝不给纯文字/输入框等无圆角元素强加圆角。
+  function collectRoundEls(){
+    var out = [];
+    var all = document.querySelectorAll('#wc-root, #wc-root *');
+    all.forEach(function(el){
+      try{
+        var r = getComputedStyle(el).borderRadius || '';
+        // 有任意非 0 圆角即纳入（排除 '0px'、''、'0px 0px ...'）
+        if(r && /[1-9]/.test(r)) out.push(el);
+      }catch(e){}
+    });
+    return out;
+  }
   function apply(p){
     p = p || {};
     var root = document.documentElement;
@@ -164,10 +179,14 @@ const IFRAME_RUNTIME = `
       if(rootEl) rootEl.style.transform='scale('+s+') translate('+x+'px,'+y+'px)';
     }
     if(p.bg){ document.body.style.background = p.bg; }
-    if(p.radius!=null){
-      // 仅作用于 #wc-root 内的元素，且只覆盖「圆角」这一视觉项，不影响其它样式
-      var els = document.querySelectorAll('#wc-root *');
-      els.forEach(function(el){ el.style.borderRadius = p.radius+'px'; });
+    // radius 只有在用户主动调整（非 null/undefined）时才应用，
+    // 且仅作用于「原本已有圆角」的元素，避免给 input/文字块强加圆角。
+    if(p.radius==='reset'){
+      // 清除之前叠加的行内圆角，恢复模板原始圆角
+      if(_roundEls){ _roundEls.forEach(function(el){ el.style.borderRadius=''; }); }
+    } else if(p.radius!=null){
+      if(_roundEls===null) _roundEls = collectRoundEls();
+      _roundEls.forEach(function(el){ el.style.borderRadius = p.radius+'px'; });
     }
     if(p.c1){ root.style.setProperty('--wc-c1', p.c1); }
     if(p.c2){ root.style.setProperty('--wc-c2', p.c2); }
@@ -256,7 +275,7 @@ export async function copyText(text) {
 // 返回 { html, css, js } 三个字符串。
 // 颜色按「token 变量」写入，与预览效果 100% 一致且只影响目标对象。
 export function buildCode(t, params = {}) {
-  const { size = 1, x = 0, y = 0, radius = 12, c1, c2, bg, speed = 1 } = params;
+  const { size = 1, x = 0, y = 0, radius = null, c1, c2, bg, speed = 1 } = params;
   const tokens = parseTokens(t);
 
   // HTML：在 #wc-root 上叠加实时变换样式
