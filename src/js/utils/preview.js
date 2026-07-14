@@ -166,7 +166,12 @@ const IFRAME_RUNTIME = `
       try{
         var r = getComputedStyle(el).borderRadius || '';
         // 有任意非 0 圆角即纳入（排除 '0px'、''、'0px 0px ...'）
-        if(r && /[1-9]/.test(r)) out.push(el);
+        if(r && /[1-9]/.test(r)){
+          // 排除「语义性圆形」：border-radius >= 50% 的元素（如圆形进度/头像），
+          // 其圆角是核心视觉，被滑块改成固定 px 会破坏造型，故保持原样。
+          if(parseFloat(r) >= 50) return;
+          out.push(el);
+        }
       }catch(e){}
     });
     return out;
@@ -218,7 +223,9 @@ export function renderPreview(container, t, { autoDemo = false, speed = 1 } = {}
   const cssWithVars = injectVarTokens(t.css || '', tokens.map);
 
   const rootVars = `:root{--wc-c1:${tokens.c1};--wc-c2:${tokens.c2};--wc-size:1;--wc-x:0px;--wc-y:0px;--wc-radius:12px;--wc-bg:#ffffff;}`;
-  const base = `<style>*{box-sizing:border-box}html,body{margin:0;height:100%}
+  const base = `<style>*{box-sizing:border-box}html,body{margin:0;height:100%;background:#fff}
+body{display:flex;align-items:center;justify-content:center;min-height:100%;padding:16px}
+#wc-root{display:flex;align-items:center;justify-content:center;max-width:100%}
 ${rootVars}</style>`;
 
   const full = `<!DOCTYPE html><html><head><meta charset="utf-8">
