@@ -14,3 +14,9 @@ dist/
 # editor
 .vscode/
 .idea/
+
+# local tooling / temp test artifacts
+.codebuddy/
+.playwright-cli/
+.wc-test-*
+
