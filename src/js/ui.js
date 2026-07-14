@@ -87,7 +87,7 @@ export function renderFooter() {
       <div class="flex flex-wrap justify-center gap-2 mt-4">
         ${CATEGORIES.map(c => `<span class="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-xs">${c.icon} ${c.name}</span>`).join('')}
       </div>
-      <p class="mt-4 text-xs">© 2026 WebCooler — 使用 CodeBuddy SDK 与 codebuddy-chat-web 构建</p>
+      <p class="mt-4 text-xs">© 2026 WebCooler — 由 keysk 开发，保留所有权利。</p>
     </div>
   </footer>`;
 }

@@ -68,5 +68,5 @@ app.innerHTML = `
     <a href="index.html" class="px-6 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-medium shadow-lg shadow-brand-500/30">返回首页，开始探索</a>
   </div>
 
-  <p class="text-center text-xs text-slate-400 dark:text-slate-500 mt-10">© 2026 WebCooler — 使用 CodeBuddy SDK 与 codebuddy-chat-web 构建</p>
+  <p class="text-center text-xs text-slate-400 dark:text-slate-500 mt-10">© 2026 WebCooler — 由 keysk 开发，保留所有权利。</p>
 </section>`;
