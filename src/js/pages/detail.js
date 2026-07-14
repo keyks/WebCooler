@@ -61,8 +61,8 @@ if (!t) {
   store.addHistory(t.id);
   const isFav = store.isFav(t.id);
   const params = extractParams(t.css);
-  const c1 = params.colors[0] || '#2f83ff';
-  const c2 = params.colors[1] || '#8b5cf6';
+  const c1 = params.c1 || '#2f83ff';
+  const c2 = params.c2 || '#8b5cf6';
 
   app.innerHTML = `
   <section class="max-w-6xl mx-auto px-4 py-8">
@@ -175,6 +175,7 @@ if (!t) {
     } catch (_) {}
     const speed = parseFloat(document.getElementById('p-speed').value) || 1;
     iframe = renderPreview(previewEl, t, { autoDemo: on, speed });
+    applyParams(iframe, state); // 重渲染后恢复当前参数，避免预览"回弹"
   });
 
   // ── 控制面板：实时改变预览（含防抖 + 撤销历史） ──
