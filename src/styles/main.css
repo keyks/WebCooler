@@ -149,7 +149,8 @@ body {
   position: relative;
   background: var(--code-bg);
   color: #e2e8f0;
-  border-radius: 0.75rem;
+  /* 圆角由外层 Tailwind 类控制（标题栏 rounded-t-lg + 此块 rounded-b-lg），
+     此处不设 border-radius，避免覆盖成四周全圆角、破坏「顶部直角」效果 */
   overflow: auto;
   font-family: '"JetBrains Mono"', Consolas, monospace;
   font-size: 13px;
