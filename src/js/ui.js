@@ -130,17 +130,12 @@ function mountMini(f, t, staticMode) {
   const key = _miniCacheKey(t.id, staticMode);
   let cached = _miniCache.get(key);
   if (cached) {
-    // 直接复用缓存 HTML —— 对 doc.open/write/close 是最耗性能的操作
-    const doc = f.contentDocument;
-    if (doc && doc.body) {
-      doc.open();
-      doc.write(cached);
-      doc.close();
-      return;
-    }
+    // 直接复用缓存 HTML —— srcdoc 赋值是最廉价的重渲染方式，
+    // 且避免「沙箱 iframe contentDocument 为 null 导致 doc.open 崩溃」。
+    f.srcdoc = cached;
+    return;
   }
 
-  const doc = f.contentDocument;
   const baseCss = `<style>*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden}
   body{display:flex;align-items:center;justify-content:center;padding:6px}
   #wc-fit{transform-origin:center center;transition:transform .2s}</style>
@@ -204,9 +199,9 @@ function mountMini(f, t, staticMode) {
     }
   }
 
-  doc.open();
-  doc.write(html);
-  doc.close();
+  // 沙箱 iframe 下 contentDocument 为 null，doc.open() 会崩溃；
+  // 改用 srcdoc 赋值（跨源沙箱仍可加载、脚本可执行）。
+  f.srcdoc = html;
 }
 
 // ── Mini 预览懒加载 + 可视区域感知 ──
@@ -249,7 +244,6 @@ function _renderOneMini(el) {
   f.style.cssText = 'width:100%;height:100%;border:0;pointer-events:none';
   f.setAttribute('tabindex', '-1');
   f.setAttribute('sandbox', 'allow-scripts');
-  f.setAttribute('loading', 'lazy');
   f.setAttribute('title', t.title || '');
   el.innerHTML = '';
   el.appendChild(f);

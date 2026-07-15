@@ -231,6 +231,8 @@ const IFRAME_RUNTIME = `
       if(rootEl){
         rootEl.style.transformOrigin = 'center center';
         rootEl.style.transform = 'scale('+s+') translate('+x+'px,'+y+'px)';
+        // 放大(size>1)时为溢出内容预留滚动空间，避免被 iframe 视口裁切
+        rootEl.style.margin = s>1 ? ((s-1)*50)+'%' : '';
       }
     }
     if(p.bg){ document.body.style.background = p.bg; }
@@ -317,32 +319,28 @@ export function renderPreview(container, t, { autoDemo = false, speed = 1 } = {}
   container.innerHTML = '';
   container.appendChild(iframe);
 
-  const doc = iframe.contentDocument;
   const tokens = parseTokens(t);
   const cssWithVars = injectVarTokens(t.css || '', tokens.map);
 
   const rootVars = `:root{--wc-c1:${tokens.c1};--wc-c2:${tokens.c2};--wc-size:1;--wc-x:0px;--wc-y:0px;--wc-radius:12px;--wc-bg:#ffffff;}`;
   const base = `<style>*{box-sizing:border-box}html,body{margin:0;height:100%;background:#fff}
-body{display:flex;align-items:center;justify-content:center;min-height:100%;padding:16px}
+body{display:flex;align-items:center;justify-content:center;min-height:100%;padding:16px;overflow:auto}
 #wc-root{display:flex;align-items:center;justify-content:center;max-width:100%}
 ${rootVars}</style>`;
 
+  const demo = autoDemo ? `<script>${demoScript(t.cat || '', t.id || '')}<\/script>` : '';
   const full = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <style id="wc-base">${cssWithVars}</style></head><body>
 <div id="wc-root">${t.html || ''}</div>
 <script>window.__wcSpeed__=${speed};<\/script>
 <script>${t.js || ''}<\/script>
+${demo}
 ${IFRAME_RUNTIME}
 </body></html>`;
-  doc.open();
-  doc.write(base + full);
-  doc.close();
-
-  if (autoDemo) {
-    const s = doc.createElement('script');
-    s.textContent = demoScript(t.cat || '', t.id || '');
-    doc.body.appendChild(s);
-  }
+  // 关键修复：沙箱 iframe（allow-scripts 无 allow-same-origin）的 contentDocument 为
+  // null，doc.open()/write() 会抛「Cannot read properties of null (reading 'open')」。
+  // 改用 srcdoc 赋值：跨源沙箱下仍可正常加载、内部脚本可执行、postMessage 通信照常。
+  iframe.srcdoc = base + full;
   return iframe;
 }
 

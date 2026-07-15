@@ -201,7 +201,7 @@ if (!t) {
   // 监听 iframe 运行时就绪信号
   window.addEventListener('message', e => {
     const d = e.data || {};
-    if (d.type === 'wc-ready' && iframe && e.source === iframe.contentWindow) {
+    if (d.type === 'wc-ready' && iframe) {
       _previewReady = true;
       iframe.style.opacity = '1';
       applyParams(iframe, state);
