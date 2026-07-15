@@ -196,6 +196,32 @@ const IFRAME_RUNTIME = `
     });
     return out;
   }
+  // ── 动画速度：把「动画速度」真正作用于模板自身的 CSS 动画 ──
+  // 之前 speed 只影响演示驱动脚本的 sleep，对 @keyframes 无效；现在按 1/speed
+  // 缩放 #wc-root 内所有元素的 animation-duration（首次扫描时缓存原始值，避免反复累积）。
+  var _speed = 1;
+  var _animEls = null;
+  function collectAnimEls(){
+    var out = [];
+    document.querySelectorAll('#wc-root *').forEach(function(el){
+      var cs = getComputedStyle(el);
+      if (cs.animationName && cs.animationName !== 'none') {
+        if (el.__origDur == null) el.__origDur = cs.animationDuration;
+        out.push(el);
+      }
+    });
+    return out;
+  }
+  function applySpeed(s){
+    _speed = (s == null ? 1 : s);
+    if (_animEls === null) _animEls = collectAnimEls();
+    _animEls.forEach(function(el){
+      var d = el.__origDur || '1s';
+      var n = parseFloat(d); if (isNaN(n)) n = 1;
+      el.style.animationDuration = (n / _speed) + 's';
+    });
+  }
+
   function apply(p){
     p = p || {};
     var root = document.documentElement;
@@ -219,6 +245,7 @@ const IFRAME_RUNTIME = `
     }
     if(p.c1){ root.style.setProperty('--wc-c1', p.c1); }
     if(p.c2){ root.style.setProperty('--wc-c2', p.c2); }
+    if(p.speed!=null){ applySpeed(p.speed); }
   }
   // ── 自定义「专属控制项」应用：按 selector + prop 精确设置，绝不误伤 ──
   // patch = { key, selector, prop, value, toggle }
@@ -265,12 +292,14 @@ const IFRAME_RUNTIME = `
   window.addEventListener('message', function(e){
     var d = e.data || {};
     if(d && d.type === 'wc-params'){ apply(d.params); }
-    else if(d && d.type === 'wc-speed'){ window.__wcSpeed__ = d.speed; }
+    else if(d && d.type === 'wc-speed'){ window.__wcSpeed__ = d.speed; applySpeed(d.speed); }
     else if(d && d.type === 'wc-control'){ applyControl(d.patch); }
   });
   // 暴露给 sandbox 内脚本直接调用（兼容旧调用路径）
   window.__wcApplyParams__ = apply;
   window.__wcApplyControl__ = applyControl;
+  // 通知父页面：运行时已就绪，可接收参数 / 控制项（解决重渲染后参数偶发丢失的竞态）
+  try { parent.postMessage({ type: 'wc-ready' }, '*'); } catch(e){}
 })();
 <\/script>`;
 
@@ -278,6 +307,9 @@ const IFRAME_RUNTIME = `
 export function renderPreview(container, t, { autoDemo = false, speed = 1 } = {}) {
   const iframe = document.createElement('iframe');
   iframe.className = 'w-full h-full border-0';
+  // 初始透明，待运行时就绪(wc-ready)后由父页面淡入，消除重渲染闪烁
+  iframe.style.opacity = '0';
+  iframe.style.transition = 'opacity .18s ease';
   iframe.setAttribute('tabindex', '-1');
   // 关键：仅 allow-scripts，不授权 allow-same-origin。
   // 这样 iframe 为不透明源，浏览器插件无法读取/注入其内部 DOM，预览不被污染。

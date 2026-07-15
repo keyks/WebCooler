@@ -180,27 +180,43 @@ if (!t) {
   };
 
   const previewEl = document.getElementById('preview');
-  let iframe = renderPreview(previewEl, t, { autoDemo: false });
+  // 预览就绪标记：运行时(iframe)通过 wc-ready 通知父页面已可接收参数/控制项。
+  // 用握手代替固定延时，彻底消除「拖动滑块偶发无反应 / 初始值未应用」的竞态。
+  let _previewReady = false;
 
-  // ── ResizeObserver：预览区高度自适应 ──
-  if (window.ResizeObserver) {
-    new ResizeObserver(() => {
-      // 预览区 iframe 高度自适应其父容器
-      const container = previewEl.parentElement;
-      if (container && iframe) {
-        const rect = container.getBoundingClientRect();
-        iframe.style.height = Math.min(rect.width * 0.65, 440) + 'px';
+  // 统一渲染 + 同步当前参数/专属控制项。新 iframe 初始透明，就绪后淡入。
+  function syncPreview(template, opts) {
+    _previewReady = false;
+    iframe = renderPreview(previewEl, template, opts);
+    // 兜底：若 200ms 内未收到 wc-ready（极个别环境），仍强制同步一次
+    setTimeout(() => {
+      if (!_previewReady && iframe) {
+        iframe.style.opacity = '1';
+        applyParams(iframe, state);
+        controls.forEach(c => applyControl(iframe, controlToPatch(c, ctrlValues[c.key])));
       }
-    }).observe(previewEl);
+    }, 200);
   }
+
+  // 监听 iframe 运行时就绪信号
+  window.addEventListener('message', e => {
+    const d = e.data || {};
+    if (d.type === 'wc-ready' && iframe && e.source === iframe.contentWindow) {
+      _previewReady = true;
+      iframe.style.opacity = '1';
+      applyParams(iframe, state);
+      controls.forEach(c => applyControl(iframe, controlToPatch(c, ctrlValues[c.key])));
+    }
+  });
+
+  let iframe;
+  syncPreview(t, { autoDemo: false });
 
   // 自动播放开关
   document.getElementById('auto-demo').addEventListener('change', e => {
     const on = e.target.checked;
     const speed = parseFloat(document.getElementById('p-speed').value) || 1;
-    iframe = renderPreview(previewEl, t, { autoDemo: on, speed });
-    applyParams(iframe, state); // 重渲染后恢复当前参数，避免预览"回弹"
-    setTimeout(() => controls.forEach(c => applyControl(iframe, controlToPatch(c, ctrlValues[c.key]))), 60);
+    syncPreview(t, { autoDemo: on, speed }); // 重渲染后由 wc-ready 自动恢复参数/控制项
   });
 
   // ── 控制面板：实时改变预览（含防抖 + 撤销历史） ──
@@ -333,17 +349,7 @@ if (!t) {
     updateCode();
     _pushUndo(state);
   });
-  // ── 专属控制项：应用到预览 + 绑定事件 ──
-  // 把当前所有专属控制项的值应用到 iframe（渲染/重渲染后调用以恢复）
-  function applyAllControls() {
-    controls.forEach(c => {
-      applyControl(iframe, controlToPatch(c, ctrlValues[c.key]));
-    });
-  }
-  // 首次渲染后应用（iframe 内容需就绪，稍作延时）
-  const _applyOnLoad = () => setTimeout(applyAllControls, 60);
-  _applyOnLoad();
-
+  // ── 专属控制项：绑定事件（应用由 syncPreview/wc-ready 统一处理） ──
   controls.forEach(c => {
     const el = document.getElementById('wcc-' + c.key);
     if (!el) return;
@@ -453,9 +459,7 @@ if (!t) {
     }
     const chk = document.getElementById('auto-demo');
     if (chk) chk.checked = false;
-    iframe = renderPreview(previewEl, code, { autoDemo: false });
-    applyParams(iframe, state);
-    setTimeout(() => controls.forEach(c => applyControl(iframe, controlToPatch(c, ctrlValues[c.key]))), 60);
+    syncPreview(code, { autoDemo: false });
     toast('代码已应用', 'success');
   }
   document.querySelectorAll('.wc-editable').forEach(pre => {
