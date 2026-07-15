@@ -104,7 +104,7 @@ export function templateCard(t, { fav = false, from = '', back = '' } = {}) {
   <a href="detail.html?${params.toString()}" class="group wc-card p-4 block" data-card="${t.id}" data-card-3d>
     <div class="preview-frame h-52 mb-3 flex items-center justify-center overflow-hidden bg-slate-50 dark:bg-slate-800 relative" data-mini="${t.id}">
       <div class="wc-skeleton absolute inset-0" style="animation-delay:${Math.random()*0.5}s"></div>
-      <span class="text-slate-300 dark:text-slate-600 text-xs absolute z-10">预览</span>
+      <span class="wc-mini-hint text-slate-300 dark:text-slate-600 text-xs absolute z-10">预览</span>
       <span class="absolute top-1 left-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-900/60 text-slate-200 font-mono opacity-0 group-hover:opacity-100 transition z-20">${t.id}.html</span>
     </div>
     <div class="flex items-start justify-between gap-2">
@@ -241,12 +241,28 @@ function _renderOneMini(el) {
   const t = window.__WC_TEMPLATES__?.find(x => x.id === el.dataset.mini);
   if (!t || el.querySelector('iframe')) return; // 已渲染则跳过
   const f = document.createElement('iframe');
-  f.style.cssText = 'width:100%;height:100%;border:0;pointer-events:none';
+  // 绝对铺满并置于骨架之上(z-5)；加载完成后骨架淡出、iframe 淡入显形
+  f.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;pointer-events:none;z-index:5;opacity:0;transition:opacity .18s ease';
   f.setAttribute('tabindex', '-1');
   f.setAttribute('sandbox', 'allow-scripts');
   f.setAttribute('title', t.title || '');
-  el.innerHTML = '';
+  // 加载骨架：复用 templateCard 已渲染的 .wc-skeleton（置顶 z-99 盖住 iframe），
+  // 待 iframe 加载完成后淡出移除，避免「先空白再淡入」的突兀感（与详情页一致）。
+  const sk = el.querySelector('.wc-skeleton');
+  if (sk) sk.style.zIndex = '99';
+  const hint = el.querySelector('.wc-mini-hint');
   el.appendChild(f);
+  let _done = false;
+  const cleanup = () => {
+    if (_done) return; _done = true;
+    f.style.opacity = '1';
+    if (sk) { sk.style.opacity = '0'; setTimeout(() => sk.remove(), 220); }
+    if (hint) hint.remove();
+  };
+  // 跨源沙箱下 iframe 的 load 事件仍会触发（不依赖 contentWindow），作为主移除时机
+  f.addEventListener('load', cleanup, { once: true });
+  // 兜底：极端环境 load 未触发时，避免骨架常驻
+  setTimeout(cleanup, 800);
   mountMini(f, t, true);
 
   // 键盘交互类卡片保持静态渲染，避免 hover 后自动演示脚本

@@ -207,18 +207,27 @@ const IFRAME_RUNTIME = `
       var cs = getComputedStyle(el);
       if (cs.animationName && cs.animationName !== 'none') {
         if (el.__origDur == null) el.__origDur = cs.animationDuration;
+        if (el.__origName == null) el.__origName = cs.animationName;
         out.push(el);
       }
     });
     return out;
   }
-  function applySpeed(s){
+  function applySpeed(s, restart){
     _speed = (s == null ? 1 : s);
     if (_animEls === null) _animEls = collectAnimEls();
     _animEls.forEach(function(el){
       var d = el.__origDur || '1s';
       var n = parseFloat(d); if (isNaN(n)) n = 1;
       el.style.animationDuration = (n / _speed) + 's';
+      // 重新触发：让「一次性 @keyframes 入场动画」(iteration-count:1) 在调速度后也能
+      // 重放；对无限循环动画则是即时生效且从当前态无缝衔接。先置 animationName='none'
+      // 强制 reflow，再恢复原始动画名（此时 duration 已是新值）。
+      if (restart) {
+        el.style.animationName = 'none';
+        void el.offsetWidth; // 强制重排，使上面的 'none' 生效
+        el.style.animationName = el.__origName || 'none';
+      }
     });
   }
 
@@ -295,6 +304,7 @@ const IFRAME_RUNTIME = `
     var d = e.data || {};
     if(d && d.type === 'wc-params'){ apply(d.params); }
     else if(d && d.type === 'wc-speed'){ window.__wcSpeed__ = d.speed; applySpeed(d.speed); }
+    else if(d && d.type === 'wc-speed-restart'){ window.__wcSpeed__ = d.speed; applySpeed(d.speed, true); }
     else if(d && d.type === 'wc-control'){ applyControl(d.patch); }
   });
   // 暴露给 sandbox 内脚本直接调用（兼容旧调用路径）
@@ -349,6 +359,13 @@ ${IFRAME_RUNTIME}
 export function setDemoSpeed(iframe, speed) {
   try {
     if (iframe && iframe.contentWindow) iframe.contentWindow.postMessage({ type: 'wc-speed', speed }, '*');
+  } catch (_) {}
+}
+
+// 重新触发预览内的 @keyframes 动画（让「一次性入场动画」在改速度后也能重放）
+export function restartAnim(iframe, speed) {
+  try {
+    if (iframe && iframe.contentWindow) iframe.contentWindow.postMessage({ type: 'wc-speed-restart', speed }, '*');
   } catch (_) {}
 }
 

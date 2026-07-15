@@ -1,7 +1,7 @@
 import { initAppShell, toast } from '../ui.js';
 import { getById } from '../data/index.js';
 import { highlight } from '../utils/highlight.js';
-import { renderPreview, copyText, applyParams, applyControl, extractParams, setDemoSpeed, buildCode } from '../utils/preview.js';
+import { renderPreview, copyText, applyParams, applyControl, extractParams, setDemoSpeed, restartAnim, buildCode } from '../utils/preview.js';
 import { inferControls, controlToPatch } from '../utils/controls.js';
 import { store } from '../utils/storage.js';
 
@@ -366,6 +366,8 @@ if (!t) {
     const s = parseFloat(document.getElementById('p-speed').value) || 1;
     state.speed = s;
     applyParams(iframe, state);
+    // 松手时重播动画：让「一次性入场动画」按新速度重新播放，而非只改无限循环动画
+    restartAnim(iframe, s);
     updateCode();
     _pushUndo(state);
   });
