@@ -1,6 +1,7 @@
 import { CATEGORIES } from './data/categories.js';
 import { initTheme, toggleTheme } from './utils/theme.js';
 import { store } from './utils/storage.js';
+import { detectTheme } from './utils/preview.js';
 
 // ── 全局工具：Toast 通知系统 ──
 let _toastTimer = null;
@@ -119,113 +120,16 @@ export function templateCard(t, { fav = false, from = '', back = '' } = {}) {
 }
 
 // ── Mini 预览引擎核心 ──
-// 内容缓存：相同模板 ID 复用已构建的 HTML（含自动演示脚本），避免重复构建。
-const _miniCache = new Map(); // key: id → htmlString
+// 静态内容缓存：相同模板 ID + staticMode 复用已构建的 HTML，避免重复 doc.write
+const _miniCache = new Map(); // key: `${id}::${staticMode}` → htmlString
+function _miniCacheKey(id, staticMode) { return `${id}::${staticMode}`; }
 
-// clipboard 垫片：沙箱 iframe（opaque origin）下 navigator.clipboard.writeText 会 reject，
-// 导致「点击复制」类模板在自动演示时抛 Unhandled Rejection（污染控制台）。
-// 注入一个内存版 writeText/readText（返回 resolved），既消除报错又让"已复制"反馈正常显现。
-const CLIPBOARD_SHIM = `<script>try{Object.defineProperty(navigator,'clipboard',{value:{writeText:function(){return Promise.resolve()},readText:function(){return Promise.resolve('')}},configurable:true})}catch(e){try{if(navigator.clipboard)navigator.clipboard.writeText=function(){return Promise.resolve()}}catch(_){}}<\/script>`;
-
-// 从模板 CSS 中「派生」出可用 JS 模拟的悬停态：
-//  - hoverCss：把所有含 :hover 的规则复制一份，将 :hover 替换为 .wc-hv 类，
-//    使我们能用「加/去 .wc-hv class」来平滑模拟真实鼠标悬停（:hover 伪类无法用 JS 触发）。
-//  - targets：需要被加 class 的「承载悬停的元素」选择器（:hover 前紧邻的选择器片段）。
-function deriveHover(css) {
-  const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
-  let hoverCss = '';
-  const targets = new Set();
-  let m;
-  while ((m = ruleRe.exec(css))) {
-    const sel = m[1];
-    if (!/:hover/.test(sel)) continue;
-    hoverCss += sel.replace(/:hover/g, '.wc-hv') + '{' + m[2] + '}';
-    sel.split(',').forEach(s => {
-      const idx = s.indexOf(':hover');
-      if (idx < 0) return;
-      const tok = s.slice(0, idx).split(/[\s>+~]+/).filter(Boolean).pop();
-      if (tok) targets.add(tok.trim());
-    });
-  }
-  return { hoverCss, targets: [...targets] };
-}
-
-// mini 自动演示引擎（注入 iframe 内运行）：平滑循环演示模板「自身的核心交互」，
-// 让 hover / 输入 / 点击 / 鼠标轨迹类模板在卡片里"活"起来。设计要点：
-//  - 只演示模板自己的交互，节奏稳定、有进有退，杜绝早期「随机点一堆元素→内容乱跳」的问题；
-//  - 通过父页面 postMessage 控制 play/pause，卡片滚出视口即暂停，200+ 卡片也不烧 CPU；
-//  - 尊重 prefers-reduced-motion：用户偏好减少动态时不演示，仅保留 CSS 入场。
-function miniDemoScript(targets) {
-  return `<script>(function(){
-    try{ if(matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches) return; }catch(e){}
-    var HOVER=${JSON.stringify(targets)};
-    var stopped=false, paused=true, started=false;
-    var sleep=function(ms){return new Promise(function(r){setTimeout(r,ms)})};
-    function live(){return !paused&&!stopped;}
-    function qa(sel){try{return [].slice.call(document.querySelectorAll(sel))}catch(e){return []}}
-    function hoverNodes(){var out=[];HOVER.forEach(function(s){qa('#wc-fit '+s).forEach(function(e){if(out.indexOf(e)<0)out.push(e)})});return out;}
-    function fields(){return qa('#wc-fit input, #wc-fit textarea');}
-    function area(){return document.querySelector('#wc-fit .area,#wc-fit .track,#wc-fit .glow,#wc-fit .smoke,#wc-fit .fire');}
-    function clickables(){return qa('#wc-fit button, #wc-fit [id]').filter(function(e){return e.offsetWidth>0 && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.tagName)});}
-    window.addEventListener('message',function(e){
-      var d=e.data||{};
-      if(d.wcMini==='pause') paused=true;
-      else if(d.wcMini==='play'){ paused=false; if(!started){started=true; loop();} }
-    });
-    async function once(){
-      var fs=fields();
-      if(fs.length){
-        var f0=fs[0]; try{f0.readOnly=true;}catch(e){}
-        var samples=['Web','Cooler','你好','123'];
-        for(var i=0;i<samples.length;i++){ if(!live())return; f0.value=samples[i]; f0.dispatchEvent(new Event('input',{bubbles:true})); f0.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})); await sleep(420); }
-        await sleep(700);
-        f0.value=''; f0.dispatchEvent(new Event('input',{bubbles:true}));
-        return;
-      }
-      var hs=hoverNodes();
-      if(hs.length){
-        hs.forEach(function(e){e.classList.add('wc-hv')});
-        await sleep(1200);
-        hs.forEach(function(e){e.classList.remove('wc-hv')});
-        await sleep(600);
-        return;
-      }
-      var ar=area();
-      if(ar){
-        var r=ar.getBoundingClientRect();
-        for(var j=0;j<18;j++){ if(!live())return; var x=r.left+r.width*(0.15+0.7*(0.5+0.5*Math.sin(j/2.2))); var y=r.top+r.height*(0.15+0.7*(0.5+0.5*Math.cos(j/3.1))); ar.dispatchEvent(new MouseEvent('mousemove',{clientX:x,clientY:y,bubbles:true})); await sleep(85); }
-        return;
-      }
-      var cs=clickables();
-      if(cs.length){
-        var el=cs[0];
-        el.dispatchEvent(new MouseEvent('click',{bubbles:true}));
-        await sleep(1200);
-        if(!live())return;
-        // toggle/展开类：再点一次复位；modal 类：尝试点关闭，避免卡在打开态
-        el.dispatchEvent(new MouseEvent('click',{bubbles:true}));
-        var closer=document.querySelector('#wc-fit #close,#wc-fit .close');
-        if(closer) closer.dispatchEvent(new MouseEvent('click',{bubbles:true}));
-        await sleep(700);
-        return;
-      }
-      await sleep(900);
-    }
-    async function loop(){
-      while(!stopped){
-        if(!live()){ await sleep(200); continue; }
-        try{ await once(); }catch(e){}
-        if(!live())continue;
-        await sleep(800);
-      }
-    }
-  })();<\/script>`;
-}
-
-// 在 mini 预览框内渲染真实效果：注入 html + css + js + 自动演示引擎，
-// 让卡片里的模板"活"起来（hover / 点击 / 输入 / 鼠标轨迹自动循环演示）。
-function mountMini(f, t) {
-  let cached = _miniCache.get(t.id);
+// 在 mini 预览框内渲染真实效果。
+// static=true：仅注入 html+css，保持静态（鼠标脱离卡片的状态）
+// static=false：注入 html+css/js + 自动演示脚本，实时播放点击/键盘/鼠标动画
+function mountMini(f, t, staticMode) {
+  const key = _miniCacheKey(t.id, staticMode);
+  let cached = _miniCache.get(key);
   if (cached) {
     // 直接复用缓存 HTML —— srcdoc 赋值是最廉价的重渲染方式，
     // 且避免「沙箱 iframe contentDocument 为 null 导致 doc.open 崩溃」。
@@ -233,16 +137,18 @@ function mountMini(f, t) {
     return;
   }
 
-  const { hoverCss, targets } = deriveHover(t.css || '');
-  const baseCss = `<style>*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden}
-  body{display:flex;align-items:center;justify-content:center;padding:6px}
-  #wc-fit{transform-origin:center center;transition:transform .2s}</style>
-  <style>${t.css||''}</style>${hoverCss?`<style>${hoverCss}</style>`:''}`;
-  // 自适应缩放脚本：内容超出容器时整体缩小，保证完整显示。
-  // 首次稳定后停止 ResizeObserver，避免自动演示期间（如 hover 放大）触发反复 refit 抖动。
+  const theme = detectTheme(t);
+  const miniBg = theme === 'dark' ? '#111827' : '#fff';
+  const baseCss = `<style>*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:auto;scrollbar-width:none}
+  html{background:${miniBg}}
+  body::-webkit-scrollbar{display:none}
+  body{display:flex;align-items:center;justify-content:center;padding:6px;-webkit-overflow-scrolling:touch;background:${miniBg}}
+  #wc-fit{transform-origin:center center;transition:transform .2s;max-width:100%;position:relative}</style>
+  <style>${t.css||''}</style>`;
+  // 自适应缩放脚本：内容超出容器时整体缩小，保证完整显示
   const fit = `<script>
   (function(){
-    var tid=null, ro=null;
+    var tid=null;
     function fit(){
       var w=document.getElementById('wc-fit');if(!w)return;
       w.style.transform='none';
@@ -256,18 +162,46 @@ function mountMini(f, t) {
     window.addEventListener('load',fit);
     setTimeout(fit,60);setTimeout(fit,300);
     window.addEventListener('resize',debounceFit);
-    if(window.ResizeObserver){ro=new ResizeObserver(debounceFit);ro.observe(document.getElementById('wc-fit'));}
-    // 内容布局稳定后断开监听，演示期的临时尺寸变化不再触发缩放抖动
-    setTimeout(function(){ if(ro) ro.disconnect(); }, 1200);
+    // ResizeObserver 监听内容变化，更精准
+    if(window.ResizeObserver){new ResizeObserver(debounceFit).observe(document.getElementById('wc-fit'));}
   })();
   <\/script>`;
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">${baseCss}</head><body><div id="wc-fit">${t.html||''}</div>${CLIPBOARD_SHIM}<script>${t.js||''}<\/script>${miniDemoScript(targets)}${fit}</body></html>`;
+  const demo = staticMode ? '' : `<script>
+  (function(){
+    var _stop=false, _rafId=null;
+    window.__wcMiniStop__=function(){_stop=true;if(_rafId)cancelAnimationFrame(_rafId);};
+    window.__wcMiniStart__=function(){_stop=false;loop();};
+    const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+    const sp=ms=>{const k=window.__wcMiniSpeed__||1;return Math.max(20,ms/k);};
+    async function play(){
+      if(_stop)return;
+      const fields=[...document.querySelectorAll('input,textarea')];
+      const area=document.querySelector('.area,.track,.glow,.smoke,.fire');
+      if(fields.length){const f0=fields[0];if(f0.blur)f0.blur();f0.readOnly=true;['Hi','Web','Cool','123'].forEach(function(v){f0.value=v;f0.dispatchEvent(new Event('input',{bubbles:true}));});if(f0.blur)f0.blur();return;}
+      if(area){const r=area.getBoundingClientRect();for(var i=0;i<8;i++){area.dispatchEvent(new MouseEvent('mousemove',{clientX:r.left+r.width*(0.2+0.6*Math.random()),clientY:r.top+r.height*(0.2+0.6*Math.random()),bubbles:true}));}return;}
+      const els=[...document.querySelectorAll('button,.b,.box,.card,.ring,.star,.rp,.glow,.item,.nav,.tip,.cell,.wrap,li,a,div')].filter(function(e){return e.offsetWidth>0;});
+      if(els.length){const e=els[Math.floor(Math.random()*els.length)];e.dispatchEvent(new MouseEvent('click',{bubbles:true}));}
+    }
+    async function loop(){
+      while(!_stop){
+        try{await play();}catch(e){}
+        if(_stop)break;
+        await sleep(sp(1300));
+      }
+    }
+    loop();
+  })();
+  <\/script>`;
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">${baseCss}</head><body><div id="wc-fit">${t.html||''}</div>${staticMode?'':`<script>${t.js||''}<\/script>`}${demo}${fit}</body></html>`;
 
-  _miniCache.set(t.id, html);
-  // 限制缓存大小：最多 80 个条目
-  if (_miniCache.size > 80) {
-    const first = _miniCache.keys().next().value;
-    _miniCache.delete(first);
+  // 缓存静态内容（动态内容不缓存，因为每次可能需要不同状态）
+  if (staticMode) {
+    _miniCache.set(key, html);
+    // 限制缓存大小：最多 60 个条目
+    if (_miniCache.size > 60) {
+      const first = _miniCache.keys().next().value;
+      _miniCache.delete(first);
+    }
   }
 
   // 沙箱 iframe 下 contentDocument 为 null，doc.open() 会崩溃；
@@ -279,7 +213,6 @@ function mountMini(f, t) {
 let _miniObserver = null;
 let _miniPending = [];
 let _miniScheduled = false;
-let _playObserver = null;
 
 function _getMiniObserver() {
   if (_miniObserver) return _miniObserver;
@@ -294,20 +227,6 @@ function _getMiniObserver() {
     });
   }, { rootMargin: '600px' }); // 提前 600px 开始加载，保证首屏卡片无需滚动即渲染
   return _miniObserver;
-}
-
-// 播放/暂停观察器：卡片进入视口→通知 iframe 内演示引擎 play；滚出→pause。
-// 这样任意时刻只有可视区域内的少量卡片在跑动画，200+ 卡片也不会烧 CPU。
-function _getPlayObserver() {
-  if (_playObserver) return _playObserver;
-  _playObserver = new IntersectionObserver((entries) => {
-    entries.forEach(en => {
-      const f = en.target.querySelector('iframe');
-      if (!f || !f.contentWindow) return;
-      try { f.contentWindow.postMessage({ wcMini: en.isIntersecting ? 'play' : 'pause' }, '*'); } catch (e) {}
-    });
-  }, { rootMargin: '80px' });
-  return _playObserver;
 }
 
 function _scheduleMiniRender() {
@@ -327,8 +246,11 @@ function _renderOneMini(el) {
   const t = window.__WC_TEMPLATES__?.find(x => x.id === el.dataset.mini);
   if (!t || el.querySelector('iframe')) return; // 已渲染则跳过
   const f = document.createElement('iframe');
+  // 主题匹配：iframe 背景色跟随模板主题，避免从骨架到内容出现白闪/黑闪
+  const theme = detectTheme(t);
+  const iframeBg = theme === 'dark' ? '#111827' : '#f8fafc';
   // 绝对铺满并置于骨架之上(z-5)；加载完成后骨架淡出、iframe 淡入显形
-  f.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;pointer-events:none;z-index:5;opacity:0;transition:opacity .18s ease';
+  f.style.cssText = `position:absolute;inset:0;width:100%;height:100%;border:0;pointer-events:none;z-index:5;opacity:0;transition:opacity .18s ease;background:${iframeBg}`;
   f.setAttribute('tabindex', '-1');
   f.setAttribute('sandbox', 'allow-scripts');
   f.setAttribute('title', t.title || '');
@@ -346,15 +268,14 @@ function _renderOneMini(el) {
     if (hint) hint.remove();
   };
   // 跨源沙箱下 iframe 的 load 事件仍会触发（不依赖 contentWindow），作为主移除时机
-  f.addEventListener('load', () => {
-    cleanup();
-    // iframe 就绪后启动演示（默认 paused），并交由 play 观察器按可见性 play/pause
-    try { f.contentWindow.postMessage({ wcMini: 'play' }, '*'); } catch (e) {}
-    _getPlayObserver().observe(el);
-  }, { once: true });
+  f.addEventListener('load', cleanup, { once: true });
   // 兜底：极端环境 load 未触发时，避免骨架常驻
   setTimeout(cleanup, 800);
-  mountMini(f, t);
+  mountMini(f, t, true);
+
+  // 键盘交互类卡片保持静态渲染，避免 hover 后自动演示脚本
+  // 循环播放键盘/点击动画导致"卡片自动跳转 / 来回跳转"。
+  // 因此直接以静态模式挂载，不再在 mouseenter 时切换为动态演示。
 }
 
 export function renderMiniPreviews(root = document) {
@@ -369,10 +290,6 @@ export function destroyMiniPreviews() {
   if (_miniObserver) {
     _miniObserver.disconnect();
     _miniObserver = null;
-  }
-  if (_playObserver) {
-    _playObserver.disconnect();
-    _playObserver = null;
   }
   _miniPending = [];
   _miniScheduled = false;

@@ -10,6 +10,41 @@
 //    读取 iframe 内部 DOM，从根本上避免第三方插件污染预览。
 
 // ────────────────────────────────────────────────────────────
+// 主题检测（详情页预览 body 背景自适应）
+// ────────────────────────────────────────────────────────────
+
+// 扫描模板 CSS 中按出现顺序的第一个"非透明/非白色"背景色，判定亮/暗主题。
+// 暗色模板的预览不再被强制白色 body 包围，视觉效果大幅提升。
+export function detectTheme(t) {
+  const css = t.css || '';
+  const re = /background(?:-color)?\s*:\s*((?:#[0-9a-fA-F]{3,8})|(?:rgba?\s*\([^)]+\)))\b/gi;
+  let m;
+  while ((m = re.exec(css))) {
+    const raw = m[1].toLowerCase();
+    if (raw.startsWith('rgba') && raw.includes(',0)')) continue;
+    if (raw === '#fff' || raw === '#ffffff' || raw === '#fff0' ||
+        raw === '#f8fafc' || raw === '#f1f5f9' || raw === '#eef6ff' || raw === '#f3f4f6') continue;
+    const h = raw.replace('#', '');
+    if (h.length >= 6) {
+      const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (lum < 55) return 'dark';
+    } else if (h.length === 3) {
+      const r = parseInt(h[0] + h[0], 16), g = parseInt(h[1] + h[1], 16), b = parseInt(h[2] + h[2], 16);
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (lum < 55) return 'dark';
+    }
+  }
+
+  // 回退信号：无显式暗色背景但文字使用纯白（#fff/white），
+  // 通常表明模板设计在暗色背景上（如霓虹/故障/发光文字效果）。
+  const textRe = /(?:^|[^-])color\s*:\s*(#fff\b|#ffffff\b|white\b|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\))/gi;
+  if (textRe.test(css)) return 'dark';
+
+  return 'light';
+}
+
+// ────────────────────────────────────────────────────────────
 // 设计 token 解析
 // ────────────────────────────────────────────────────────────
 
@@ -149,11 +184,6 @@ function demoScript(cat, id) {
   })();
   `;
 }
-
-// clipboard 垫片：沙箱 iframe（opaque origin）下 navigator.clipboard.writeText 会 reject，
-// 「点击复制」类模板在自动播放/交互时会抛 Unhandled Rejection 污染控制台。
-// 注入内存版 writeText/readText（resolved），既消除报错又让"已复制"反馈正常显现。
-const CLIPBOARD_SHIM = `<script>try{Object.defineProperty(navigator,'clipboard',{value:{writeText:function(){return Promise.resolve()},readText:function(){return Promise.resolve('')}},configurable:true})}catch(e){try{if(navigator.clipboard)navigator.clipboard.writeText=function(){return Promise.resolve()}}catch(_){}}<\/script>`;
 
 // iframe 内部接收参数并应用：只改 :root 变量 + #wc-root 作用域 + 可选 body 背景，
 // 绝不触碰任何具体类名/全局选择器，所以改动任一滑块都不会影响其它内容。
@@ -342,10 +372,13 @@ export function renderPreview(container, t, { autoDemo = false, speed = 1 } = {}
   const tokens = parseTokens(t);
   const cssWithVars = injectVarTokens(t.css || '', tokens.map);
 
-  const rootVars = `:root{--wc-c1:${tokens.c1};--wc-c2:${tokens.c2};--wc-size:1;--wc-x:0px;--wc-y:0px;--wc-radius:12px;--wc-bg:#ffffff;}`;
-  const base = `<style>*{box-sizing:border-box}html,body{margin:0;height:100%;background:#fff}
+  const theme = detectTheme(t);
+  const bodyBg = theme === 'dark' ? '#111827' : '#ffffff';
+  const bodyColor = theme === 'dark' ? '#e2e8f0' : 'inherit';
+  const rootVars = `:root{--wc-c1:${tokens.c1};--wc-c2:${tokens.c2};--wc-size:1;--wc-x:0px;--wc-y:0px;--wc-radius:12px;--wc-bg:${bodyBg};}`;
+  const base = `<style>*{box-sizing:border-box}html,body{margin:0;height:100%;background:${bodyBg};color:${bodyColor}}
 body{display:flex;align-items:center;justify-content:center;min-height:100%;padding:16px;overflow:auto}
-#wc-root{display:flex;align-items:center;justify-content:center;max-width:100%}
+#wc-root{max-width:100%;min-height:0;position:relative}
 ${rootVars}</style>`;
 
   const demo = autoDemo ? `<script>${demoScript(t.cat || '', t.id || '')}<\/script>` : '';
@@ -353,7 +386,6 @@ ${rootVars}</style>`;
 <style id="wc-base">${cssWithVars}</style></head><body>
 <div id="wc-root">${t.html || ''}</div>
 <script>window.__wcSpeed__=${speed};<\/script>
-${CLIPBOARD_SHIM}
 <script>${t.js || ''}<\/script>
 ${demo}
 ${IFRAME_RUNTIME}
