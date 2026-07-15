@@ -208,6 +208,7 @@ body {
 .preview-frame {
   @apply bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700;
   overflow: hidden;
+  position: relative; /* 供加载骨架(.wc-skeleton)绝对定位铺满 */
 }
 
 /* ---------- 滚动条美化 ---------- */

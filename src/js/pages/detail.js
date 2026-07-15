@@ -133,7 +133,7 @@ if (!t) {
               <input type="range" id="p-y" min="-60" max="60" step="1" value="0" class="wc-range w-full mt-1">
             </label>
             <label class="text-xs text-slate-600 dark:text-slate-300">圆角 <span id="v-radius">默认</span>
-              <input type="range" id="p-radius" min="0" max="40" step="1" value="12" class="wc-range w-full mt-1">
+              <input type="range" id="p-radius" min="0" max="40" step="1" value="0" class="wc-range w-full mt-1">
             </label>
             <label class="text-xs text-slate-600 dark:text-slate-300">动画速度 <span id="v-speed">1.0×（数值越小越慢）</span>
               <input type="range" id="p-speed" min="0.2" max="3" step="0.1" value="1" class="wc-range w-full mt-1">
@@ -184,14 +184,33 @@ if (!t) {
   // 用握手代替固定延时，彻底消除「拖动滑块偶发无反应 / 初始值未应用」的竞态。
   let _previewReady = false;
 
+  // 预览加载骨架：iframe 就绪前显示微光占位，避免空白/突兀淡入（动态显示体验）
+  function ensureSkeleton() {
+    let sk = previewEl.querySelector('.wc-skeleton');
+    if (!sk) {
+      sk = document.createElement('div');
+      sk.className = 'wc-skeleton';
+      sk.style.cssText = 'position:absolute;inset:0;z-index:5;pointer-events:none;border-radius:inherit';
+      previewEl.appendChild(sk);
+    }
+    sk.style.opacity = '1';
+    return sk;
+  }
+  function hideSkeleton() {
+    const sk = previewEl.querySelector('.wc-skeleton');
+    if (sk) { sk.style.opacity = '0'; setTimeout(() => sk.remove(), 220); }
+  }
+
   // 统一渲染 + 同步当前参数/专属控制项。新 iframe 初始透明，就绪后淡入。
   function syncPreview(template, opts) {
     _previewReady = false;
+    ensureSkeleton();
     iframe = renderPreview(previewEl, template, opts);
     // 兜底：若 200ms 内未收到 wc-ready（极个别环境），仍强制同步一次
     setTimeout(() => {
       if (!_previewReady && iframe) {
         iframe.style.opacity = '1';
+        hideSkeleton();
         applyParams(iframe, state);
         controls.forEach(c => applyControl(iframe, controlToPatch(c, ctrlValues[c.key])));
       }
@@ -204,6 +223,7 @@ if (!t) {
     if (d.type === 'wc-ready' && iframe) {
       _previewReady = true;
       iframe.style.opacity = '1';
+      hideSkeleton();
       applyParams(iframe, state);
       controls.forEach(c => applyControl(iframe, controlToPatch(c, ctrlValues[c.key])));
     }
@@ -385,7 +405,7 @@ if (!t) {
     state.size=1; state.x=0; state.y=0; state.c1=c1; state.c2=c2; state.bg=''; state.speed=1;
     applyParams(iframe, { radius: 'reset' }); // 先清除已应用的圆角，恢复模板原始圆角
     state.radius=null;
-    ['p-size','p-x','p-y','p-radius'].forEach(id=>document.getElementById(id).value = id==='p-radius'?12:(id==='p-size'?1:0));
+    ['p-size','p-x','p-y','p-radius'].forEach(id=>document.getElementById(id).value = id==='p-radius'?0:(id==='p-size'?1:0));
     document.getElementById('p-c1').value=c1;
     document.getElementById('p-c2').value=c2;
     document.getElementById('p-bg').value='#ffffff';

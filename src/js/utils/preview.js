@@ -316,7 +316,8 @@ export function renderPreview(container, t, { autoDemo = false, speed = 1 } = {}
   // 关键：仅 allow-scripts，不授权 allow-same-origin。
   // 这样 iframe 为不透明源，浏览器插件无法读取/注入其内部 DOM，预览不被污染。
   iframe.setAttribute('sandbox', 'allow-scripts');
-  container.innerHTML = '';
+  // 仅移除旧的 iframe（保留加载骨架占位 .wc-skeleton），避免就绪前的空白闪烁
+  container.querySelectorAll('iframe').forEach(f => f.remove());
   container.appendChild(iframe);
 
   const tokens = parseTokens(t);
