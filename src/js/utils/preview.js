@@ -150,6 +150,11 @@ function demoScript(cat, id) {
   `;
 }
 
+// clipboard 垫片：沙箱 iframe（opaque origin）下 navigator.clipboard.writeText 会 reject，
+// 「点击复制」类模板在自动播放/交互时会抛 Unhandled Rejection 污染控制台。
+// 注入内存版 writeText/readText（resolved），既消除报错又让"已复制"反馈正常显现。
+const CLIPBOARD_SHIM = `<script>try{Object.defineProperty(navigator,'clipboard',{value:{writeText:function(){return Promise.resolve()},readText:function(){return Promise.resolve('')}},configurable:true})}catch(e){try{if(navigator.clipboard)navigator.clipboard.writeText=function(){return Promise.resolve()}}catch(_){}}<\/script>`;
+
 // iframe 内部接收参数并应用：只改 :root 变量 + #wc-root 作用域 + 可选 body 背景，
 // 绝不触碰任何具体类名/全局选择器，所以改动任一滑块都不会影响其它内容。
 const IFRAME_RUNTIME = `
@@ -348,6 +353,7 @@ ${rootVars}</style>`;
 <style id="wc-base">${cssWithVars}</style></head><body>
 <div id="wc-root">${t.html || ''}</div>
 <script>window.__wcSpeed__=${speed};<\/script>
+${CLIPBOARD_SHIM}
 <script>${t.js || ''}<\/script>
 ${demo}
 ${IFRAME_RUNTIME}
