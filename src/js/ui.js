@@ -220,7 +220,7 @@ function _getMiniObserver() {
         _scheduleMiniRender();
       }
     });
-  }, { rootMargin: '200px' }); // 提前 200px 开始加载
+  }, { rootMargin: '600px' }); // 提前 600px 开始加载，保证首屏卡片无需滚动即渲染
   return _miniObserver;
 }
 

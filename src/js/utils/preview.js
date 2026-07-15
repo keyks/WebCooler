@@ -189,7 +189,10 @@ const IFRAME_RUNTIME = `
         // ── 排除「背景为渐变/图像绘制造型」的元素 ──
         // 如 conic-gradient 画的进度环，改圆角会破坏其视觉，保持原样。
         var bg = cs.backgroundImage || '';
-        if(/gradient|url\(/i.test(bg)) return;
+        // 注意：勿写成 /gradient|url\(/i —— esbuild 压缩会把 \( 当多余转义删掉，
+        // 导致该正则变成未闭合分组、脚本解析期直接 SyntaxError，预览运行时整体崩溃。
+        // 改用 indexOf 判断 url(，彻底规避正则转义被压缩器破坏的风险。
+        if(/gradient/i.test(bg) || bg.indexOf('url(') >= 0) return;
 
         out.push(el);
       }catch(e){}
