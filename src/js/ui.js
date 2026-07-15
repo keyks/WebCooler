@@ -294,7 +294,6 @@ export function bindThemeToggle() {
   if (btn) btn.onclick = () => {
     const dark = toggleTheme();
     btn.textContent = dark ? '☀️' : '🌙';
-    document.querySelectorAll('[data-theme-icon]').forEach(()=>{});
   };
 }
 

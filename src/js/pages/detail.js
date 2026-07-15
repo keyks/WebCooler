@@ -515,7 +515,10 @@ if (!t) {
   });
 
   document.getElementById('download').addEventListener('click', () => {
-    const html = `<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8"><style>${t.css}</style></head>\n<body>\n${t.html}\n<script>${t.js}<\/script>\n</body></html>`;
+    // 关键修复：下载「当前编辑/调参后」的代码（currentCode 读取代码框里的实时内容），
+    // 而非模板原始 t.* 值——否则用户在代码框里改了内容再点下载，得到的仍是原版。
+    const code = currentCode();
+    const html = `<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8"><style>${code.css}</style></head>\n<body>\n${code.html}\n<script>${code.js}<\/script>\n</body></html>`;
     const blob = new Blob([html], { type: 'text/html' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);

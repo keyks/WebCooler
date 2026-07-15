@@ -35,7 +35,8 @@ const emptyEl = document.getElementById('empty');
 
 function render() {
   let list = curCat ? getByCat(curCat) : TEMPLATES.slice();
-  if (curQ) list = search(curQ);
+  // 组合筛选：分类 + 关键词搜索同时生效（之前搜索会覆盖分类筛选，导致选了分类再搜索时丢失分类）
+  if (curQ) list = list.filter(t => search(curQ).includes(t));
   countEl.textContent = `共 ${list.length} 个模板`;
   if (!list.length) {
     grid.innerHTML = ''; emptyEl.classList.remove('hidden'); return;

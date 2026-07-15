@@ -326,6 +326,7 @@ export function renderPreview(container, t, { autoDemo = false, speed = 1 } = {}
   iframe.style.opacity = '0';
   iframe.style.transition = 'opacity .18s ease';
   iframe.setAttribute('tabindex', '-1');
+  iframe.setAttribute('title', (t && t.title) || '模板实时预览');
   // 关键：仅 allow-scripts，不授权 allow-same-origin。
   // 这样 iframe 为不透明源，浏览器插件无法读取/注入其内部 DOM，预览不被污染。
   iframe.setAttribute('sandbox', 'allow-scripts');
