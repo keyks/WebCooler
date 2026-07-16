@@ -407,9 +407,12 @@ export function renderPreview(container, t, { autoDemo = false, speed = 1 } = {}
     ? '::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#374151;border-radius:999px}::-webkit-scrollbar-thumb:hover{background:#4b5563}'
     : '::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:999px}::-webkit-scrollbar-thumb:hover{background:#9ca3af}';
   const rootVars = `:root{--wc-c1:${tokens.c1};--wc-c2:${tokens.c2};--wc-size:1;--wc-x:0px;--wc-y:0px;--wc-radius:12px;--wc-bg:${bodyBg};}`;
+  // 关键：body 使用 overscroll-behavior:contain 阻止滚动链。模板中有大量滚动驱动效果
+  //（进度条/渐变/缩放等），该属性确保 body 滚动不会"劫持"用户对模板内部 .track/.content
+  // 等元素的滚轮事件，同时又保留 body 在内容溢出时的滚动能力（如 ef-scroll-show）。
   const base = `<style>*{box-sizing:border-box}html,body{margin:0;height:100%;background:${bodyBg};color:${bodyColor}}
 html{${scrollbarColor}scrollbar-width:thin;scrollbar-color:${theme==='dark'?'#374151 transparent':'#d1d5db transparent'}}
-body{display:flex;align-items:center;justify-content:center;min-height:100%;padding:16px;overflow:auto;-webkit-overflow-scrolling:touch}
+body{display:flex;align-items:center;justify-content:center;min-height:100%;padding:16px;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 #wc-root{max-width:100%;min-height:0;position:relative}
 ${rootVars}</style>`;
 

@@ -142,7 +142,7 @@ function mountMini(f, t, staticMode) {
   const baseCss = `<style>*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:auto;scrollbar-width:none}
   html{background:${miniBg}}
   body::-webkit-scrollbar{display:none}
-  body{display:flex;align-items:center;justify-content:center;padding:6px;-webkit-overflow-scrolling:touch;background:${miniBg}}
+  body{display:flex;align-items:center;justify-content:center;padding:6px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;background:${miniBg}}
   #wc-fit{transform-origin:center center;transition:transform .2s;max-width:100%;position:relative}</style>
   <style>${t.css||''}</style>`;
   // 自适应缩放脚本：内容超出容器时整体缩小，保证完整显示
