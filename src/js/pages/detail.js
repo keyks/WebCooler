@@ -249,19 +249,28 @@ if (!t) {
 
   function _pushUndo(snapshot) {
     _undoStack = _undoStack.slice(0, _undoIdx + 1);
-    // 深拷贝专属控制项值，保证撤销/重做能精确回滚
-    _undoStack.push({ ...snapshot, ctrlValues: { ...(snapshot.ctrlValues || {}) } });
+    // 深度快照：所有可变字段均做浅拷贝，防止各快照之间通过引用互相污染
+    // controls 是只读数组（不增删），仅拷贝引用即可
+    _undoStack.push({
+      size: snapshot.size, x: snapshot.x, y: snapshot.y,
+      radius: snapshot.radius, c1: snapshot.c1, c2: snapshot.c2,
+      bg: snapshot.bg, speed: snapshot.speed,
+      ctrlValues: { ...(snapshot.ctrlValues || {}) }
+    });
     if (_undoStack.length > MAX_UNDO) _undoStack.shift();
     _undoIdx = _undoStack.length - 1;
   }
   function _applyState(s) {
+    // 深拷贝专属控制项值后再 assign，保证撤销/重做精确回滚
+    // 注意：Object.assign 前先处理好 ctrlValues 副本，避免之后被覆盖
+    const ctrlCopy = s.ctrlValues ? { ...s.ctrlValues } : null;
     Object.assign(state, s);
     // 保持 controls/ctrlValues 始终指向原始引用（buildCode 依赖它）
     state.controls = controls;
     state.ctrlValues = ctrlValues;
     // 恢复专属控制项值并同步 UI + 预览
-    if (s.ctrlValues) {
-      Object.assign(ctrlValues, s.ctrlValues);
+    if (ctrlCopy) {
+      Object.assign(ctrlValues, ctrlCopy);
       controls.forEach(c => {
         const el = document.getElementById('wcc-' + c.key);
         const v = ctrlValues[c.key];
@@ -279,9 +288,16 @@ if (!t) {
     Object.entries(mapping).forEach(([k, id]) => {
       const el = document.getElementById(id);
       if (el && s[k] !== undefined) {
-        if (id === 'p-speed') { el.value = s[k]; document.getElementById('v-speed').textContent = s[k].toFixed(1) + '×'; setDemoSpeed(iframe, s[k]); }
-        else if (id === 'p-bg') el.value = s[k] || '#ffffff';
-        else el.value = s[k];
+        if (id === 'p-radius') {
+          // radius 为 null 表示「未调整/默认」：滑块回 0 但 state 保持 null，显示文本为「默认」
+          el.value = s[k] == null ? 0 : s[k];
+        } else if (id === 'p-speed') {
+          el.value = s[k]; document.getElementById('v-speed').textContent = s[k].toFixed(1) + '×'; setDemoSpeed(iframe, s[k]);
+        } else if (id === 'p-bg') {
+          el.value = s[k] || '#ffffff';
+        } else {
+          el.value = s[k];
+        }
       }
     });
     ['v-size','v-x','v-y','v-radius'].forEach((vid, i) => {
@@ -432,8 +448,10 @@ if (!t) {
   });
 
   // ── 编辑代码后按回车：用当前代码重新渲染并静态定格 ──
+  // 使用 textContent 而非 innerText：后者是 CSS 感知的布局计算，可能修剪空白/换行；
+  // textContent 原样返回 DOM 文本，精确还原用户编辑的源码内容。
   function currentCode() {
-    const read = sel => { const p = document.querySelector(sel); return p ? p.innerText : ''; };
+    const read = sel => { const p = document.querySelector(sel); return p ? p.textContent : ''; };
     return {
       html: t.html ? read('#code-html pre') : '',
       css: t.css ? read('#code-css pre') : '',
@@ -506,18 +524,18 @@ if (!t) {
   });
 
   document.getElementById('copy-all').addEventListener('click', async () => {
+    const code = buildCode(t, state);
     const parts = [];
-    if (t.html) parts.push(`<!-- HTML -->\n${document.querySelector('#code-html pre').innerText}`);
-    if (t.css) parts.push(`/* CSS */\n${document.querySelector('#code-css pre').innerText}`);
-    if (t.js) parts.push(`/* JS */\n${document.querySelector('#code-js pre').innerText}`);
+    if (t.html) parts.push(`<!-- HTML -->\n${code.html}`);
+    if (t.css) parts.push(`/* CSS */\n${code.css}`);
+    if (t.js) parts.push(`/* JS */\n${code.js}`);
     await copyText(parts.join('\n\n'));
     toast('全部代码已复制!', 'success');
   });
 
   document.getElementById('download').addEventListener('click', () => {
-    // 关键修复：下载「当前编辑/调参后」的代码（currentCode 读取代码框里的实时内容），
-    // 而非模板原始 t.* 值——否则用户在代码框里改了内容再点下载，得到的仍是原版。
-    const code = currentCode();
+    // 下载「当前参数调节后」的代码（与代码框显示一致，buildCode 合并了实时参数），
+    const code = buildCode(t, state);
     const html = `<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8"><style>${code.css}</style></head>\n<body>\n${code.html}\n<script>${code.js}<\/script>\n</body></html>`;
     const blob = new Blob([html], { type: 'text/html' });
     const a = document.createElement('a');

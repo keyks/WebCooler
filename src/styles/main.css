@@ -210,6 +210,14 @@ body {
   overflow: hidden;
   position: relative; /* 供加载骨架(.wc-skeleton)绝对定位铺满 */
 }
+/* 详情页预览 iframe：需要 scroll 支持模板内容溢出滚动 */
+.detail-preview-frame {
+  overflow: auto;
+}
+/* 预览 iframe 加载过渡：初始透明，运行时就绪后淡入，消除白闪 */
+.preview-frame iframe {
+  background: inherit;
+}
 
 /* ---------- 滚动条美化 ---------- */
 ::-webkit-scrollbar { width: 10px; height: 10px; }

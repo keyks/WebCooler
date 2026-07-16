@@ -27,11 +27,15 @@
 function readNum(css, selector, prop, fallback) {
   if (!css) return fallback;
   const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // 匹配规则块：允许选择器跨行（如多选择器逗号分隔）、属性值可含负号、小数
   const re = new RegExp(esc + '\\s*\\{([^}]*)\\}', 'i');
   const m = re.exec(css);
   if (!m) return fallback;
-  const pm = new RegExp(prop + '\\s*:\\s*([-\\d.]+)', 'i').exec(m[1]);
-  return pm ? parseFloat(pm[1]) : fallback;
+  const body = m[1];
+  // 在规则体内匹配属性值：支持负值、小数、单位
+  const pm = new RegExp('(?:^|;)\\s*' + prop.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*:\\s*([-\\d.]+)', 'i');
+  const pm2 = pm.exec(body);
+  return pm2 ? parseFloat(pm2[1]) : fallback;
 }
 
 // 从 inline style（html）里读取 width 百分比（进度条常见 style="width:65%"）

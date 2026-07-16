@@ -1,4 +1,4 @@
-import { initAppShell, templateCard, renderMiniPreviews } from '../ui.js';
+import { initAppShell, templateCard, renderMiniPreviews, destroyMiniPreviews } from '../ui.js';
 import { TEMPLATES, getByCat, search } from '../data/index.js';
 import { CATEGORIES } from '../data/categories.js';
 
@@ -39,11 +39,16 @@ function render() {
   if (curQ) list = list.filter(t => search(curQ).includes(t));
   countEl.textContent = `共 ${list.length} 个模板`;
   if (!list.length) {
-    grid.innerHTML = ''; emptyEl.classList.remove('hidden'); return;
+    grid.innerHTML = ''; emptyEl.classList.remove('hidden');
+    // 清空时也清理预览 observer，避免残留引用
+    destroyMiniPreviews();
+    return;
   }
   emptyEl.classList.add('hidden');
   // 返回时携带当前分类/搜索筛选，确保回到原来的筛选结果
   const backUrl = 'categories.html' + (location.search ? location.search : '');
+  // 重要：重新渲染前清理旧 observer 和缓存，避免内存泄漏 + 新旧 iframe 叠加
+  destroyMiniPreviews();
   grid.innerHTML = list.map(t => templateCard(t, { from: 'category', back: backUrl })).join('');
   renderMiniPreviews();
   // 绑定 3D 卡片效果

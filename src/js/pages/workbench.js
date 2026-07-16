@@ -76,7 +76,7 @@ app.innerHTML = `
 renderMiniPreviews();
 
 /* ---------- 共享卡片交互 ---------- */
-function escapeHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt')}
+function escapeHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 function refreshShares() {
   const data = store.get();

@@ -19,6 +19,8 @@ export function detectTheme(t) {
   const css = t.css || '';
   const re = /background(?:-color)?\s*:\s*((?:#[0-9a-fA-F]{3,8})|(?:rgba?\s*\([^)]+\)))\b/gi;
   let m;
+  // 第一遍扫描：收集所有非中性背景色
+  const bgColors = [];
   while ((m = re.exec(css))) {
     const raw = m[1].toLowerCase();
     if (raw.startsWith('rgba') && raw.includes(',0)')) continue;
@@ -28,18 +30,44 @@ export function detectTheme(t) {
     if (h.length >= 6) {
       const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
       const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-      if (lum < 55) return 'dark';
+      bgColors.push({ raw, lum });
     } else if (h.length === 3) {
       const r = parseInt(h[0] + h[0], 16), g = parseInt(h[1] + h[1], 16), b = parseInt(h[2] + h[2], 16);
       const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-      if (lum < 55) return 'dark';
+      bgColors.push({ raw, lum });
     }
   }
 
-  // 回退信号：无显式暗色背景但文字使用纯白（#fff/white），
-  // 通常表明模板设计在暗色背景上（如霓虹/故障/发光文字效果）。
-  const textRe = /(?:^|[^-])color\s*:\s*(#fff\b|#ffffff\b|white\b|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\))/gi;
-  if (textRe.test(css)) return 'dark';
+  // 有显式暗色背景 → dark
+  if (bgColors.some(c => c.lum < 55)) return 'dark';
+  // 有显式亮色背景 → light（即使后面有白字也不覆盖）
+  if (bgColors.some(c => c.lum >= 200)) return 'light';
+
+  // ── 回退信号：无显式背景色、但文字使用纯白 ──
+  // 仅当白色文字出现在「结构性选择器」(body/html/*/#wc-root/:root/高层容器)
+  // 时判定为暗色主题；排除散落在小元素上的零星白字（如按钮上的白字）。
+  // 同时要求 CSS 中没有#fff/#ffffff作为背景色（纯白底+白字=看不见）。
+  const cssLower = css.toLowerCase();
+  const hasWhiteBg = /background(?:-color)?\s*:\s*(#fff\b|#ffffff\b|white\b)/i.test(cssLower);
+
+  if (!hasWhiteBg) {
+    // 提取所有 color:white 出现位置附件的选择器，判断是否为结构级
+    const structSelectors = /(?:^|\})\s*(body|html|\*|:root|#wc-root|\.container|\.wrapper|\.page|\.main)\s*\{/gi;
+    const textRe = /(?:^|[^-])color\s*:\s*(#fff\b|#ffffff\b|white\b|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\))/gi;
+    const textMatches = [...cssLower.matchAll(textRe)];
+
+    if (textMatches.length >= 3) return 'dark'; // 大量白字 → 大概率暗色主题
+
+    if (textMatches.length > 0) {
+      // 检查是否在结构级选择器上下文中
+      const structMatch = structSelectors.test(cssLower);
+      if (structMatch) return 'dark';
+
+      // 暗色预设关键词：标题中有霓虹/暗色/深色/暗黑等
+      const title = (t.title || '').toLowerCase();
+      if (/霓虹|暗色|深色|暗黑|夜间|glitch|neon|dark|night/.test(title)) return 'dark';
+    }
+  }
 
   return 'light';
 }
@@ -375,14 +403,21 @@ export function renderPreview(container, t, { autoDemo = false, speed = 1 } = {}
   const theme = detectTheme(t);
   const bodyBg = theme === 'dark' ? '#111827' : '#ffffff';
   const bodyColor = theme === 'dark' ? '#e2e8f0' : 'inherit';
+  const scrollbarColor = theme === 'dark'
+    ? '::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#374151;border-radius:999px}::-webkit-scrollbar-thumb:hover{background:#4b5563}'
+    : '::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:999px}::-webkit-scrollbar-thumb:hover{background:#9ca3af}';
   const rootVars = `:root{--wc-c1:${tokens.c1};--wc-c2:${tokens.c2};--wc-size:1;--wc-x:0px;--wc-y:0px;--wc-radius:12px;--wc-bg:${bodyBg};}`;
   const base = `<style>*{box-sizing:border-box}html,body{margin:0;height:100%;background:${bodyBg};color:${bodyColor}}
-body{display:flex;align-items:center;justify-content:center;min-height:100%;padding:16px;overflow:auto}
+html{${scrollbarColor}scrollbar-width:thin;scrollbar-color:${theme==='dark'?'#374151 transparent':'#d1d5db transparent'}}
+body{display:flex;align-items:center;justify-content:center;min-height:100%;padding:16px;overflow:auto;-webkit-overflow-scrolling:touch}
 #wc-root{max-width:100%;min-height:0;position:relative}
 ${rootVars}</style>`;
 
   const demo = autoDemo ? `<script>${demoScript(t.cat || '', t.id || '')}<\/script>` : '';
+  // 关键修复：base 样式需要在 DOCTYPE 之后（html→head 内），否则放在 DOCTYPE 前
+  // 会触发浏览器怪异模式，导致样式丢失和布局异常。
   const full = `<!DOCTYPE html><html><head><meta charset="utf-8">
+${base}
 <style id="wc-base">${cssWithVars}</style></head><body>
 <div id="wc-root">${t.html || ''}</div>
 <script>window.__wcSpeed__=${speed};<\/script>
@@ -393,7 +428,7 @@ ${IFRAME_RUNTIME}
   // 关键修复：沙箱 iframe（allow-scripts 无 allow-same-origin）的 contentDocument 为
   // null，doc.open()/write() 会抛「Cannot read properties of null (reading 'open')」。
   // 改用 srcdoc 赋值：跨源沙箱下仍可正常加载、内部脚本可执行、postMessage 通信照常。
-  iframe.srcdoc = base + full;
+  iframe.srcdoc = full;
   return iframe;
 }
 
