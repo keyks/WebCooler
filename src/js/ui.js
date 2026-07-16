@@ -177,7 +177,7 @@ function mountMini(f, t, staticMode) {
       if(_stop)return;
       const fields=[...document.querySelectorAll('input,textarea')];
       const area=document.querySelector('.area,.track,.glow,.smoke,.fire');
-      if(fields.length){const f0=fields[0];if(f0.blur)f0.blur();f0.readOnly=true;['Hi','Web','Cool','123'].forEach(function(v){f0.value=v;f0.dispatchEvent(new Event('input',{bubbles:true}));});if(f0.blur)f0.blur();return;}
+      if(fields.length){const f0=fields[0];if(f0.blur)f0.blur();f0.readOnly=true;for(var v of['Hi','Web','Cool','123']){f0.value=v;f0.dispatchEvent(new Event('input',{bubbles:true}));await sleep(sp(400));}if(f0.blur)f0.blur();return;}
       if(area){const r=area.getBoundingClientRect();for(var i=0;i<8;i++){area.dispatchEvent(new MouseEvent('mousemove',{clientX:r.left+r.width*(0.2+0.6*Math.random()),clientY:r.top+r.height*(0.2+0.6*Math.random()),bubbles:true}));}return;}
       const els=[...document.querySelectorAll('button,.b,.box,.card,.ring,.star,.rp,.glow,.item,.nav,.tip,.cell,.wrap,li,a,div')].filter(function(e){return e.offsetWidth>0;});
       if(els.length){const e=els[Math.floor(Math.random()*els.length)];e.dispatchEvent(new MouseEvent('click',{bubbles:true}));}
