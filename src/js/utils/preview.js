@@ -469,8 +469,18 @@ export function restartAnim(iframe, speed) {
 // 改动某一滑块时只影响目标对象，绝不误伤其它内容。
 export function applyParams(iframe, params) {
   if (!iframe || !iframe.contentWindow) return;
+  // 关键：postMessage 使用结构化克隆，无法序列化函数/复杂对象。
+  // state 里包含 controls（含 format 函数）与 ctrlValues，若整体下发会抛
+  // DataCloneError 并被静默吞掉，导致 size/x/y/radius/颜色等全局参数
+  // 「滑块拖动后预览毫无反应」。这里只挑出 apply() 实际需要的原始类型字段。
+  const safe = {};
+  if (params && typeof params === 'object') {
+    for (const k of ['size', 'x', 'y', 'radius', 'c1', 'c2', 'bg', 'speed']) {
+      if (k in params) safe[k] = params[k];
+    }
+  }
   try {
-    iframe.contentWindow.postMessage({ type: 'wc-params', params: params }, '*');
+    iframe.contentWindow.postMessage({ type: 'wc-params', params: safe }, '*');
   } catch (_) {}
 }
 
