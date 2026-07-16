@@ -188,8 +188,8 @@ const layouts = [
   {
     id: 'ly-parallax', cat: 'layout', title: '视差滚动布局', tags: ['视差', '特殊'],
     desc: '多层不同速度滚动。',
-    html: `<div class="px"><div class="bg"></div><div class="fg">前景内容</div></div>`,
-    css: `.px{position:relative;height:220px;overflow:hidden;border-radius:10px}.bg{position:absolute;inset:0;background:linear-gradient(135deg,#1e3a8a,#0ea5e9);transform:translateY(0)}.fg{position:relative;top:120px;left:30px;color:#fff;font-size:22px;font-weight:700}`,
+    html: `<div class="px"><div class="bg"></div><div class="fg">前景内容</div><div class="fill"></div></div>`,
+    css: `.px{position:relative;height:220px;overflow-y:auto;border-radius:10px}.px .fill{height:240px}.bg{position:absolute;inset:0;background:linear-gradient(135deg,#1e3a8a,#0ea5e9);transform:translateY(0)}.fg{position:relative;top:120px;left:30px;color:#fff;font-size:22px;font-weight:700}`,
     js: `const bg=document.querySelector('.bg');document.querySelector('.px').addEventListener('scroll',e=>{bg.style.transform='translateY('+e.target.scrollTop*0.4+'px')});`
   },
   {
@@ -217,7 +217,7 @@ const layouts = [
     id: 'ly-collapse', cat: 'layout', title: '折叠布局', tags: ['折叠', '特殊'],
     desc: '可折叠的手风琴区域。',
     html: `<div class="acc"><button class="hd" data-t>面板 1 ▾</button><div class="bd">折叠内容 A</div><button class="hd" data-t>面板 2 ▾</button><div class="bd">折叠内容 B</div></div>`,
-    css: `.hd{width:100%;text-align:left;background:#eef6ff;color:#0f172a;border:0;padding:12px;border-radius:8px;margin-top:6px;cursor:pointer}.bd{max-height:0;overflow:hidden;transition:max-height .3s;color:#334;padding:0 12px}.bd.open{max-height:60px;padding:10px 12px}`,
+    css: `.hd{width:100%;text-align:left;background:#eef6ff;color:#0f172a;border:0;padding:12px;border-radius:8px;margin-top:6px;cursor:pointer}.bd{max-height:0;overflow:hidden;transition:max-height .3s;color:#334;padding:0 12px}.bd.open{max-height:120px;padding:10px 12px}`,
     js: `document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{const bd=b.nextElementSibling;bd.classList.toggle('open')});`
   },
   {

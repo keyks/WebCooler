@@ -176,8 +176,11 @@ function mountMini(f, t, staticMode) {
     async function play(){
       if(_stop)return;
       const fields=[...document.querySelectorAll('input,textarea')];
-      const area=document.querySelector('.area,.track,.glow,.smoke,.fire');
       if(fields.length){const f0=fields[0];if(f0.blur)f0.blur();f0.readOnly=true;for(var v of['Hi','Web','Cool','123']){f0.value=v;f0.dispatchEvent(new Event('input',{bubbles:true}));await sleep(sp(400));}if(f0.blur)f0.blur();return;}
+      // 滚动驱动类：探测滚动容器并模拟滚动，触发 scroll 类特效
+      var sc=(function(){var cands=[].slice.call(document.querySelectorAll('.track,.content,.snap,.wrap'));for(var k=0;k<cands.length;k++){if(cands[k].scrollHeight>cands[k].clientHeight+2)return cands[k];}var all=[].slice.call(document.querySelectorAll('#wc-fit *'));for(var m=0;m<all.length;m++){var el=all[m];var cs=getComputedStyle(el);if(((cs.overflowY==='auto'||cs.overflowY==='scroll'||cs.overflow==='auto'||cs.overflow==='scroll')&&el.scrollHeight>el.clientHeight+5)||((cs.overflowX==='auto'||cs.overflowX==='scroll')&&el.scrollWidth>el.clientWidth+5))return el;}return null;})();
+      if(sc){var maxY=sc.scrollHeight-sc.clientHeight,maxX=sc.scrollWidth-sc.clientWidth;for(var s=0;s<=10;s++){if(_stop)return;sc.scrollTop=maxY*(s/10);sc.scrollLeft=maxX*(s/10);sc.dispatchEvent(new Event('scroll',{bubbles:true}));await sleep(sp(45));}for(var s2=10;s2>=0;s2--){if(_stop)return;sc.scrollTop=maxY*(s2/10);sc.scrollLeft=maxX*(s2/10);sc.dispatchEvent(new Event('scroll',{bubbles:true}));await sleep(sp(35));}return;}
+      const area=document.querySelector('.area,.glow,.smoke,.fire');
       if(area){const r=area.getBoundingClientRect();for(var i=0;i<8;i++){area.dispatchEvent(new MouseEvent('mousemove',{clientX:r.left+r.width*(0.2+0.6*Math.random()),clientY:r.top+r.height*(0.2+0.6*Math.random()),bubbles:true}));}return;}
       const els=[...document.querySelectorAll('button,.b,.box,.card,.ring,.star,.rp,.glow,.item,.nav,.tip,.cell,.wrap,li,a,div')].filter(function(e){return e.offsetWidth>0;});
       if(els.length){const e=els[Math.floor(Math.random()*els.length)];e.dispatchEvent(new MouseEvent('click',{bubbles:true}));}

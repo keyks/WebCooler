@@ -152,7 +152,7 @@ function injectVarTokens(css, map) {
 // 自动演示驱动：根据模板种类模拟真实交互（仅当用户主动勾选「自动播放」时启用）。
 // 演示脚本只触发「模板自身声明的交互事件」，不会修改任何设计 token，
 // 因此不会与「实时参数控制」冲突，也不会造成"来回跳转/误改内容"。
-function demoScript(cat, id) {
+function demoScript() {
   return `
   (function(){
     var _stop = false;
@@ -172,10 +172,7 @@ function demoScript(cat, id) {
     }
     async function play(){
       if (_stop || window.__wcDemoStop__) return;
-      var cat = ${JSON.stringify(cat)};
-      var id = ${JSON.stringify(id)};
       var fields = [].slice.call(document.querySelectorAll('input,textarea,select'));
-      var area = document.querySelector('.area,.track,.glow,.smoke,.fire,.b');
       if(fields.length){
         var f = fields[0]; if(f.blur) f.blur(); f.readOnly=true;
         var samples=['Hello','WebCooler','你好','123','ABC','Code'];
@@ -188,14 +185,33 @@ function demoScript(cat, id) {
         if(f.blur) f.blur();
         return;
       }
-      if((cat==='mouse' && (id||'').indexOf('follow')>=0) || area){
-        var el = area || document.body;
-        var r = el.getBoundingClientRect();
+      // 滚动驱动类：优先命中显式滚动容器，兜底自动探测可滚动元素，
+      // 模拟 scrollTop 滚动并派发 scroll 事件，驱动所有 scroll 类特效真实演示。
+      var sc=(function(){
+        var cands=[].slice.call(document.querySelectorAll('.track,.content,.snap,.wrap'));
+        for(var k=0;k<cands.length;k++){ if(cands[k].scrollHeight>cands[k].clientHeight+2) return cands[k]; }
+        var all=[].slice.call(document.querySelectorAll('#wc-root *'));
+        for(var m=0;m<all.length;m++){ var el=all[m]; var cs=getComputedStyle(el);
+          if(((cs.overflowY==='auto'||cs.overflowY==='scroll'||cs.overflow==='auto'||cs.overflow==='scroll')&&el.scrollHeight>el.clientHeight+5)||
+             ((cs.overflowX==='auto'||cs.overflowX==='scroll')&&el.scrollWidth>el.clientWidth+5)) return el; }
+        return null;
+      })();
+      if(sc){
+        var maxY=sc.scrollHeight-sc.clientHeight, maxX=sc.scrollWidth-sc.clientWidth;
+        for(var s=0;s<=10;s++){ if(_stop||window.__wcDemoStop__)return;
+          sc.scrollTop=maxY*(s/10); sc.scrollLeft=maxX*(s/10); sc.dispatchEvent(new Event('scroll',{bubbles:true})); await sleep(sp(45)); }
+        for(var s2=10;s2>=0;s2--){ if(_stop)return;
+          sc.scrollTop=maxY*(s2/10); sc.scrollLeft=maxX*(s2/10); sc.dispatchEvent(new Event('scroll',{bubbles:true})); await sleep(sp(35)); }
+        return;
+      }
+      var area = document.querySelector('.area,.glow,.smoke,.fire,.b');
+      if(area){
+        var r = area.getBoundingClientRect();
         for(var j=0;j<10;j++){
           if (_stop) return;
           var x=r.left+r.width*(0.2+0.6*Math.random());
           var y=r.top+r.height*(0.2+0.6*Math.random());
-          el.dispatchEvent(new MouseEvent('mousemove',{clientX:x,clientY:y,bubbles:true}));
+          area.dispatchEvent(new MouseEvent('mousemove',{clientX:x,clientY:y,bubbles:true}));
           await sleep(sp(50));
         }
         return;
@@ -416,7 +432,7 @@ body{display:flex;align-items:center;justify-content:center;min-height:100%;padd
 #wc-root{max-width:100%;min-height:0;position:relative}
 ${rootVars}</style>`;
 
-  const demo = autoDemo ? `<script>${demoScript(t.cat || '', t.id || '')}<\/script>` : '';
+  const demo = autoDemo ? `<script>${demoScript()}<\/script>` : '';
   // 关键修复：base 样式需要在 DOCTYPE 之后（html→head 内），否则放在 DOCTYPE 前
   // 会触发浏览器怪异模式，导致样式丢失和布局异常。
   const full = `<!DOCTYPE html><html><head><meta charset="utf-8">

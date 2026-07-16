@@ -26,12 +26,12 @@ const effects = [
 
   // ===== 滚动动画 =====
   { id: 'ef-scroll-show', cat: 'effect', title: '滚动显示', tags: ['滚动'], desc: '进入视口时显示（JS IntersectionObserver）。',
-    html: `<div style="height:120px"></div><div class="reveal">滚动到这里才出现</div><div style="height:120px"></div>`,
-    css: `.reveal{opacity:0;transform:translateY(30px);transition:.6s;color:#334;text-align:center;padding:30px;background:#eef6ff;border-radius:10px}.reveal.show{opacity:1;transform:none}`,
+    html: `<div class="track"><div style="height:120px"></div><div class="reveal">滚动到这里才出现</div><div style="height:160px"></div></div>`,
+    css: `.track{height:220px;overflow:auto;border-radius:10px}.reveal{opacity:0;transform:translateY(30px);transition:.6s;color:#334;text-align:center;padding:30px;background:#eef6ff;border-radius:10px;margin:0 16px}.reveal.show{opacity:1;transform:none}`,
     js: `const r=document.querySelector('.reveal');new IntersectionObserver(([e])=>{if(e.isIntersecting)r.classList.add('show')},{threshold:.3}).observe(r);` },
   { id: 'ef-scroll-fixed', cat: 'effect', title: '滚动固定', tags: ['滚动'], desc: '元素滚动到顶固定。',
-    html: `<div style="height:80px"></div><div class="sticky">我固定了</div><div style="height:200px"></div>`,
-    css: `.sticky{position:sticky;top:0;background:#1664f0;color:#fff;padding:14px;text-align:center}`,
+    html: `<div class="track"><div style="height:60px">向下滚动 ↓</div><div class="sticky">我固定了</div><div style="height:200px"></div></div>`,
+    css: `.track{height:220px;overflow:auto;border-radius:10px}.sticky{position:sticky;top:0;background:#1664f0;color:#fff;padding:14px;text-align:center}`,
     js: `` },
   { id: 'ef-scroll-parallax', cat: 'effect', title: '滚动视差', tags: ['滚动'], desc: '背景随滚动慢速移动。',
     html: `<div class="wrap"><div class="bg"></div><div class="fg">视差前景</div></div>`,
