@@ -59,7 +59,7 @@ const components = [
       { key: 'progress', label: '进度', min: 0, max: 100, step: 1, unit: '%', value: 65, selector: '.fill', prop: 'width', format: v => `${v}%`, hint: '拖动“进度”滑块实时调节进度条 .fill 的 width' },
       { key: 'thick', label: '进度条粗细', min: 4, max: 26, step: 1, unit: 'px', value: 10, selector: '.bar', prop: 'height', format: v => `${v}px`, hint: '调节进度条容器 .bar 的 height（粗细）' }
     ] },
-  { id: 'cp-prog-circle', cat: 'component', title: '圆形进度', tags: ['进度条'], desc: '', html: `<div class="circle"><div class="inner">72%</div></div>`, css: `.circle{width:90px;height:90px;border-radius:50%;background:conic-gradient(#2f83ff 72%,#e2e8f0 0);display:grid;place-items:center;margin:0 auto}.inner{width:66px;height:66px;background:#fff;border-radius:50%;display:grid;place-items:center;color:#0f172a;font-weight:700}`, js: ``,
+  { id: 'cp-prog-circle', cat: 'component', title: '圆形进度', tags: ['进度条'], desc: '', html: `<div class="circle"><div class="inner">72%</div></div>`, css: `.circle{width:90px;aspect-ratio:1;border-radius:50%;background:conic-gradient(#2f83ff 72%,#e2e8f0 0);display:grid;place-items:center;margin:0 auto}.inner{width:66px;height:66px;background:#fff;border-radius:50%;display:grid;place-items:center;color:#0f172a;font-weight:700}`, js: ``,
     controls: [
       { key: 'progress', label: '进度', min: 0, max: 100, step: 1, unit: '%', value: 72, selector: '.circle', prop: 'background', format: v => `conic-gradient(var(--wc-c1) ${v}%, #e2e8f0 0)`, hint: '拖动“进度”滑块调节圆环填充百分比（conic-gradient 角度）' },
       { key: 'ptext', label: '中心数字', min: 0, max: 100, step: 1, unit: '%', value: 72, selector: '.inner', prop: 'content-text', format: v => `${v}%`, hint: '中心数字跟随进度显示' },

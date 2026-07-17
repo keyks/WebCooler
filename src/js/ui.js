@@ -1,7 +1,7 @@
 import { CATEGORIES } from './data/categories.js';
 import { initTheme, toggleTheme } from './utils/theme.js';
 import { store } from './utils/storage.js';
-import { detectTheme } from './utils/preview.js';
+import { detectTheme, buildCode, copyText } from './utils/preview.js';
 
 // ── 全局工具：Toast 通知系统 ──
 let _toastTimer = null;
@@ -26,6 +26,62 @@ export function toast(msg, type = 'info') {
     el.classList.add('opacity-0', 'translate-y-4');
   }, 2200);
 }
+
+// ── 卡片快速操作：复制 / 收藏 / 下载（document 级事件委托，全局一次生效） ──
+function _resolveCard(btn) {
+  const root = btn.closest('[data-card]');
+  if (!root) return null;
+  const id = root.dataset.card;
+  return (window.__WC_TEMPLATES__ || []).find(t => t.id === id) || null;
+}
+function _downloadTemplateHtml(t) {
+  const code = buildCode(t, {});
+  const html = `<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8"><style>${code.css}</style></head>\n<body>\n${code.html}\n<script>${code.js}<\/script>\n</body></html>`;
+  const blob = new Blob([html], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${t.id}.html`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function _syncNavFav() {
+  const el = document.querySelector('[data-fav-count]');
+  if (el) el.textContent = (store.get().favs || []).length;
+}
+// 向卡片 mini iframe 发送开始/停止指令（跨源沙箱下 postMessage 仍可用）
+export function postMini(el, type) {
+  const f = el.querySelector('iframe');
+  if (f && f.contentWindow) { try { f.contentWindow.postMessage({ type }, '*'); } catch (_) {} }
+}
+document.addEventListener('click', async (e) => {
+  const copyBtn = e.target.closest('.wc-act-copy');
+  const favBtn = e.target.closest('.wc-act-fav');
+  const dlBtn = e.target.closest('.wc-act-dl');
+  if (!copyBtn && !favBtn && !dlBtn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const t = _resolveCard(copyBtn || favBtn || dlBtn);
+  if (!t) return;
+  if (copyBtn) {
+    const code = buildCode(t, {});
+    const parts = [];
+    if (t.html) parts.push('<!-- HTML -->\n' + code.html);
+    if (t.css) parts.push('/* CSS */\n' + code.css);
+    if (t.js) parts.push('/* JS */\n' + code.js);
+    await copyText(parts.join('\n\n'));
+    toast('已复制代码', 'success');
+  } else if (favBtn) {
+    const favs = store.toggleFav(t.id);
+    const on = favs.includes(t.id);
+    favBtn.textContent = on ? '★' : '☆';
+    favBtn.classList.toggle('text-amber-500', on);
+    _syncNavFav();
+    toast(on ? '已收藏' : '已取消收藏', 'info');
+  } else if (dlBtn) {
+    _downloadTemplateHtml(t);
+    toast('已下载 ' + t.id + '.html', 'success');
+  }
+});
 
 // ── 全局快捷键注册 ──
 export function bindGlobalShortcuts() {
@@ -66,7 +122,7 @@ export function renderNav(active = '') {
       </nav>
       <div class="flex items-center gap-2">
         <a href="workbench.html" class="relative text-sm px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" aria-label="收藏夹，${favCount} 个收藏">
-          ⭐ <span class="ml-1 font-mono text-xs">${favCount}</span>
+          ⭐ <span class="ml-1 font-mono text-xs" data-fav-count>${favCount}</span>
           ${favCount > 0 ? `<span class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>` : ''}
         </a>
         <button id="theme-toggle" class="w-9 h-9 grid place-items-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-lg transition-colors" aria-label="${dark ? '切换到浅色模式' : '切换到深色模式'}">${dark ? '☀️' : '🌙'}</button>
@@ -101,12 +157,18 @@ export function templateCard(t, { fav = false, from = '', back = '' } = {}) {
   params.set('id', t.id);
   if (from) params.set('from', from);
   if (back) params.set('back', back);
+  const isFav = store.isFav(t.id);
   return `
   <a href="detail.html?${params.toString()}" class="group wc-card p-4 block" data-card="${t.id}" data-card-3d>
     <div class="preview-frame h-52 mb-3 flex items-center justify-center overflow-hidden bg-slate-50 dark:bg-slate-800 relative" data-mini="${t.id}">
       <div class="wc-skeleton absolute inset-0" style="animation-delay:${Math.random()*0.5}s"></div>
       <span class="wc-mini-hint text-slate-300 dark:text-slate-600 text-xs absolute z-10">预览</span>
       <span class="absolute top-1 left-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-900/60 text-slate-200 font-mono opacity-0 group-hover:opacity-100 transition z-20">${t.id}.html</span>
+      <div class="wc-actions absolute top-2 right-2 z-30 flex gap-1 opacity-0 group-hover:opacity-100 transition focus-within:opacity-100">
+        <button type="button" class="wc-act-copy w-7 h-7 grid place-items-center rounded-md bg-white/90 dark:bg-slate-900/90 text-slate-600 dark:text-slate-300 shadow-sm hover:text-brand-600 transition" title="复制代码" aria-label="复制代码">⧉</button>
+        <button type="button" class="wc-act-fav w-7 h-7 grid place-items-center rounded-md bg-white/90 dark:bg-slate-900/90 shadow-sm hover:text-amber-500 transition ${isFav?'text-amber-500':''}" title="收藏" aria-label="收藏">${isFav?'★':'☆'}</button>
+        <button type="button" class="wc-act-dl w-7 h-7 grid place-items-center rounded-md bg-white/90 dark:bg-slate-900/90 text-slate-600 dark:text-slate-300 shadow-sm hover:text-brand-600 transition" title="下载 .html" aria-label="下载">⤓</button>
+      </div>
     </div>
     <div class="flex items-start justify-between gap-2">
       <h3 class="font-semibold text-sm line-clamp-1 group-hover:text-brand-600 dark:group-hover:text-brand-300 transition-colors">${t.title}</h3>
@@ -168,9 +230,11 @@ function mountMini(f, t, staticMode) {
   <\/script>`;
   const demo = staticMode ? '' : `<script>
   (function(){
-    var _stop=false, _rafId=null;
-    window.__wcMiniStop__=function(){_stop=true;if(_rafId)cancelAnimationFrame(_rafId);};
-    window.__wcMiniStart__=function(){_stop=false;loop();};
+    var _stop=true, _rafId=null;
+    function reset(){var scs=document.querySelectorAll('.track,.content,.snap,.wrap');scs.forEach(function(s){s.scrollTop=0;s.scrollLeft=0;});var flds=document.querySelectorAll('input,textarea');flds.forEach(function(f){f.value='';if(f.blur)f.blur();});}
+    window.__wcMiniStop__=function(){_stop=true;if(_rafId)cancelAnimationFrame(_rafId);reset();};
+    window.__wcMiniStart__=function(){if(!_stop)return;_stop=false;loop();};
+    window.addEventListener('message',function(e){var d=e.data||{};if(d.type==='wc-mini-start')window.__wcMiniStart__();else if(d.type==='wc-mini-stop')window.__wcMiniStop__();});
     const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     const sp=ms=>{const k=window.__wcMiniSpeed__||1;return Math.max(20,ms/k);};
     async function play(){
@@ -182,7 +246,7 @@ function mountMini(f, t, staticMode) {
       if(sc){var maxY=sc.scrollHeight-sc.clientHeight,maxX=sc.scrollWidth-sc.clientWidth;for(var s=0;s<=10;s++){if(_stop)return;sc.scrollTop=maxY*(s/10);sc.scrollLeft=maxX*(s/10);sc.dispatchEvent(new Event('scroll',{bubbles:true}));await sleep(sp(45));}for(var s2=10;s2>=0;s2--){if(_stop)return;sc.scrollTop=maxY*(s2/10);sc.scrollLeft=maxX*(s2/10);sc.dispatchEvent(new Event('scroll',{bubbles:true}));await sleep(sp(35));}return;}
       const area=document.querySelector('.area,.glow,.smoke,.fire');
       if(area){const r=area.getBoundingClientRect();for(var i=0;i<8;i++){area.dispatchEvent(new MouseEvent('mousemove',{clientX:r.left+r.width*(0.2+0.6*Math.random()),clientY:r.top+r.height*(0.2+0.6*Math.random()),bubbles:true}));}return;}
-      const els=[...document.querySelectorAll('button,.b,.box,.card,.ring,.star,.rp,.glow,.item,.nav,.tip,.cell,.wrap,li,a,div')].filter(function(e){return e.offsetWidth>0;});
+      const els=[...document.querySelectorAll('button,.b,.box,.card,.ring,.star,.rp,.glow,.item,.nav,.tip,.cell,.wrap,li,div')].filter(function(e){return e.offsetWidth>0&&e.tagName!=='A';});
       if(els.length){const e=els[Math.floor(Math.random()*els.length)];e.dispatchEvent(new MouseEvent('click',{bubbles:true}));}
     }
     async function loop(){
@@ -274,11 +338,11 @@ function _renderOneMini(el) {
   f.addEventListener('load', cleanup, { once: true });
   // 兜底：极端环境 load 未触发时，避免骨架常驻
   setTimeout(cleanup, 800);
-  mountMini(f, t, true);
+  mountMini(f, t, false);
 
-  // 键盘交互类卡片保持静态渲染，避免 hover 后自动演示脚本
-  // 循环播放键盘/点击动画导致"卡片自动跳转 / 来回跳转"。
-  // 因此直接以静态模式挂载，不再在 mouseenter 时切换为动态演示。
+  // 悬停时启动自动演示（实时预览），离开时停止并复位，避免卡片自动跳转
+  el.addEventListener('mouseenter', () => { postMini(el, 'wc-mini-start'); setTimeout(() => postMini(el, 'wc-mini-start'), 280); });
+  el.addEventListener('mouseleave', () => postMini(el, 'wc-mini-stop'));
 }
 
 export function renderMiniPreviews(root = document) {

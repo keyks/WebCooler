@@ -263,5 +263,6 @@ export function controlToPatch(c, rawValue) {
     return { key: c.key, selector: c.selector, prop: c.prop, value: v ? c.on : c.off, toggle: true };
   }
   const cssVal = c.format ? c.format(v) : `${v}${c.unit || ''}`;
-  return { key: c.key, selector: c.selector, prop: c.prop, value: cssVal };
+  // raw/def 供 iframe 运行时判断是否「恰为默认值」从而跳过覆盖规则（见 preview.js）
+  return { key: c.key, selector: c.selector, prop: c.prop, value: cssVal, raw: v, def: c.value };
 }

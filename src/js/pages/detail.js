@@ -303,7 +303,7 @@ if (!t) {
     ['v-size','v-x','v-y','v-radius'].forEach((vid, i) => {
       const out = document.getElementById(vid);
       if (out) {
-        const vals = [Math.round(state.size*100)+'%', state.x+'px', state.y+'px', state.radius==null?'默认':state.radius+'px'];
+        const vals = [Math.round(state.size*100)+'%', state.x+'px', state.y+'px', (state.radius==null||state.radius===0)?'默认':state.radius+'px'];
         out.textContent = vals[i];
       }
     });
@@ -338,11 +338,12 @@ if (!t) {
   let _debounceTimer = null;
   function _debouncedApply() {
     clearTimeout(_debounceTimer);
+    // 防抖只负责「实时预览 + 代码同步」；撤销快照仅在鼠标松手('change')时入栈，
+    // 避免一次拖拽产生几十条几乎相同的撤销记录，让 Ctrl+Z 一步还原一次调整。
     _debounceTimer = setTimeout(() => {
       applyParams(iframe, state);
       updateCode();
-      _pushUndo(state);
-    }, 80); // 80ms 防抖
+    }, 80);
   }
 
   const bind = (pid, key, fmt, transform = v => v) => {
@@ -365,7 +366,7 @@ if (!t) {
   bind('p-size', 'size', v => Math.round(v*100)+'%', v => parseFloat(v));
   bind('p-x', 'x', v => v+'px', v => parseInt(v,10));
   bind('p-y', 'y', v => v+'px', v => parseInt(v,10));
-  bind('p-radius', 'radius', v => v+'px', v => parseInt(v,10));
+  bind('p-radius', 'radius', v => (v===0?'默认':v+'px'), v => parseInt(v,10));
   bind('p-c1', 'c1', v => v);
   bind('p-c2', 'c2', v => v);
   bind('p-bg', 'bg', v => v);
@@ -406,7 +407,7 @@ if (!t) {
         if (out) out.textContent = v + (c.unit || '');
         applyControl(iframe, controlToPatch(c, v));
         clearTimeout(_debounceTimer);
-        _debounceTimer = setTimeout(() => { updateCode(); _pushUndo(state); }, 80);
+        _debounceTimer = setTimeout(() => { updateCode(); }, 80);
       });
       el.addEventListener('change', () => {
         clearTimeout(_debounceTimer);
@@ -418,6 +419,10 @@ if (!t) {
 
   // 初始状态入栈
   _pushUndo(state);
+  // 初次渲染即用 buildCode 回填代码框，保证「所见即所得」：代码框展示的内容与
+  // 「复制全部代码」完全一致（都含设计 token / 已应用参数），且之后点「编辑→回车」
+  // 重新应用时走 tokenize:false 分支，不会因重复注入 token 而自引用崩溃。
+  updateCode();
 
   document.getElementById('p-reset').addEventListener('click', () => {
     state.size=1; state.x=0; state.y=0; state.c1=c1; state.c2=c2; state.bg=''; state.speed=1;
@@ -499,7 +504,9 @@ if (!t) {
     }
     const chk = document.getElementById('auto-demo');
     if (chk) chk.checked = false;
-    syncPreview(code, { autoDemo: false });
+    // tokenize:false —— 用户编辑后的代码已是 buildCode 产物(含 :root{--wc-c1:#...} 覆盖块)，
+    // 不可再次注入 var token，否则会生成 :root{--wc-c1:var(--wc-c1)} 自引用导致颜色失效。
+    syncPreview(code, { autoDemo: false, tokenize: false });
     toast('代码已应用', 'success');
   }
   document.querySelectorAll('.wc-editable').forEach(pre => {

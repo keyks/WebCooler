@@ -326,13 +326,21 @@ const IFRAME_RUNTIME = `
         rootEl.style.margin = s>1 ? ((s-1)*50)+'%' : '';
       }
     }
-    if(p.bg){ document.body.style.background = p.bg; }
-    // radius 只有在用户主动调整（非 null/undefined）时才应用，
-    // 且仅作用于「原本已有圆角」的元素，避免给 input/文字块强加圆角。
-    if(p.radius==='reset'){
+    // 背景：空串 / 'reset' / null 等同「恢复主题默认」——清除行内覆盖，
+    // 回退到 base 里 html,body{background:...} 的主题色。否则点「重置」或拖动其它
+    // 滑块后，之前设过的背景色会被「永远残留」无法还原。
+    if(p.bg && p.bg !== 'reset'){ document.body.style.background = p.bg; }
+    else { document.body.style.background = ''; }
+    // radius 仅在用户主动调整时应用；且仅作用于「原本已有圆角」的元素，避免给
+    // input/文字块强加圆角。
+    //  - 'reset' / null / 0：清除行内圆角，恢复模板原始圆角
+    //    （0 与「默认」等价，避免「把滑块拖到 0 反而把圆角元素强行变直角」的陷阱，
+    //     也让重置按钮把滑块归 0 后行为一致）
+    //  - 其它数值：替换为 Npx
+    if(p.radius==='reset' || p.radius==null || p.radius===0){
       // 清除之前叠加的行内圆角，恢复模板原始圆角
       if(_roundEls){ _roundEls.forEach(function(el){ el.style.borderRadius=''; }); }
-    } else if(p.radius!=null){
+    } else {
       if(_roundEls===null) _roundEls = collectRoundEls();
       _roundEls.forEach(function(el){ el.style.borderRadius = p.radius+'px'; });
     }
@@ -352,10 +360,15 @@ const IFRAME_RUNTIME = `
     return _ctrlStyle;
   }
   var _ctrlRules = {};   // key -> css 文本
+  function _flushCtrl(){
+    var out = '';
+    for(var k in _ctrlRules){ out += _ctrlRules[k] + '\\n'; }
+    ensureCtrlStyle().textContent = out;
+  }
   function applyControl(p){
     if(!p || !p.selector || !p.prop) return;
     try{
-      // 特殊属性：直接操作 DOM 而非样式
+      // 特殊属性：直接操作 DOM 而非样式（始终应用，含默认态，以保证「重置」能还原）
       if(p.prop === 'checked'){
         document.querySelectorAll(p.selector).forEach(function(el){
           el.checked = (p.value === 'on' || p.value === true);
@@ -374,11 +387,17 @@ const IFRAME_RUNTIME = `
         document.querySelectorAll(p.selector).forEach(function(el){ el.textContent = p.value; });
         return;
       }
-      // 常规 CSS 属性：写入一条作用于 #wc-root 内该选择器的规则（!important 保证覆盖）
+      // 常规 CSS 属性：写入一条作用于 #wc-root 内该选择器的规则（!important 保证覆盖）。
+      // 当取值恰等于「模板默认值」(p.raw === p.def) 时，不写入、并移除该 key 已有规则：
+      //  1) 避免「默认态也强制覆盖」——如 3D 卡片的 transform:rotateX(0) !important 会
+      //     用 !important 压制卡片自身的 JS 内联 hover 倾斜，导致一进详情页交互就失效；
+      //  2) 保证「重置」能正确还原（把规则删掉，回退到模板原始样式）。
+      if(p.raw === p.def){
+        if(_ctrlRules[p.key] != null){ delete _ctrlRules[p.key]; _flushCtrl(); }
+        return;
+      }
       _ctrlRules[p.key] = '#wc-root ' + p.selector + '{' + p.prop + ':' + p.value + ' !important}';
-      var out = '';
-      for(var k in _ctrlRules){ out += _ctrlRules[k] + '\\n'; }
-      ensureCtrlStyle().textContent = out;
+      _flushCtrl();
     }catch(e){}
   }
 
@@ -398,7 +417,7 @@ const IFRAME_RUNTIME = `
 <\/script>`;
 
 // 渲染预览沙箱。返回 iframe。
-export function renderPreview(container, t, { autoDemo = false, speed = 1 } = {}) {
+export function renderPreview(container, t, { autoDemo = false, speed = 1, tokenize = true } = {}) {
   const iframe = document.createElement('iframe');
   iframe.className = 'w-full h-full border-0';
   // 初始透明，待运行时就绪(wc-ready)后由父页面淡入，消除重渲染闪烁
@@ -414,7 +433,12 @@ export function renderPreview(container, t, { autoDemo = false, speed = 1 } = {}
   container.appendChild(iframe);
 
   const tokens = parseTokens(t);
-  const cssWithVars = injectVarTokens(t.css || '', tokens.map);
+  // tokenize（默认开）：把模板字面量颜色替换为 --wc-c1/--wc-c2 设计 token。
+  //   —— 但「用户编辑代码后重新应用」时务必关闭(tokenize:false)！因为此时 t.css
+  //      已经是 buildCode() 的产物，内含 `:root{--wc-c1:#xxx}` 覆盖块；若再次
+  //      injectVarTokens 会把该块里的 #xxx 也替换成 var(--wc-c1)，造成
+  //      `:root{--wc-c1:var(--wc-c1)}` 自引用 -> 颜色整体失效。
+  const cssWithVars = tokenize ? injectVarTokens(t.css || '', tokens.map) : (t.css || '');
 
   const theme = detectTheme(t);
   const bodyBg = theme === 'dark' ? '#111827' : '#ffffff';
