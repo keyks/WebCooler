@@ -1,7 +1,7 @@
 import { initAppShell, toast } from '../ui.js';
 import { getById } from '../data/index.js';
 import { highlight } from '../utils/highlight.js';
-import { renderPreview, copyText, applyParams, applyControl, extractParams, setDemoSpeed, restartAnim, buildCode } from '../utils/preview.js';
+import { renderPreview, copyText, applyParams, applyControl, extractParams, setDemoSpeed, restartAnim, buildCode, buildStandaloneHtml, detectTheme } from '../utils/preview.js';
 import { inferControls, controlToPatch } from '../utils/controls.js';
 import { store } from '../utils/storage.js';
 
@@ -64,6 +64,11 @@ if (!t) {
   const params = extractParams(t.css);
   const c1 = params.c1 || '#2f83ff';
   const c2 = params.c2 || '#8b5cf6';
+  // 背景色滑块的「初始/重置」显示基准：跟随模板主题（暗色 #111827 / 浅色 #ffffff），
+  // 修复暗色模板「滑块显示白色、预览实为暗色」的视觉不一致。state.bg 仍保持 ''（=跟随主题），
+  // applyParams 下发 '' 会清除 body 行内背景、回退到主题色，且不会因此多导出 body 背景规则，
+  // 保证「复制全部代码」干净；这里只校正 UI 滑块的显示色。
+  const bodyBg0 = detectTheme(t) === 'dark' ? '#111827' : '#ffffff';
 
   // 该模板的「专属控制项」（逐个推断，贴合自身特点）
   const controls = inferControls(t);
@@ -145,7 +150,7 @@ if (!t) {
               <input type="color" id="p-c2" value="${c2}" class="wc-color w-full mt-1 h-8">
             </label>
             <label class="text-xs text-slate-600 dark:text-slate-300">背景颜色
-              <input type="color" id="p-bg" value="#ffffff" class="wc-color w-full mt-1 h-8">
+              <input type="color" id="p-bg" value="${bodyBg0}" class="wc-color w-full mt-1 h-8">
             </label>
             <div class="flex items-end">
               <button id="p-reset" class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-brand-600">重置参数</button>
@@ -220,7 +225,10 @@ if (!t) {
   // 监听 iframe 运行时就绪信号
   window.addEventListener('message', e => {
     const d = e.data || {};
-    if (d.type === 'wc-ready' && iframe) {
+    // 仅接受「当前预览 iframe」发来的就绪信号：校验 e.source 精确匹配 iframe.contentWindow，
+    // 忽略外部页面 / 浏览器扩展 / 已被 syncPreview 替换掉的旧 iframe 发来的同名消息，
+    // 避免越权触发 applyParams 或在新旧 iframe 之间产生就绪竞态。
+    if (d.type === 'wc-ready' && iframe && e.source === iframe.contentWindow) {
       _previewReady = true;
       iframe.style.opacity = '1';
       hideSkeleton();
@@ -230,13 +238,18 @@ if (!t) {
   });
 
   let iframe;
+  // 编辑态快照：用户「编辑代码→回车」应用后，这里保存当前(已编辑)代码对象。
+  // 一旦进入编辑态，updateCode() 不再用原始模板 t 重建代码框，否则拖滑块/重置会丢失编辑。
+  let edited = null;
   syncPreview(t, { autoDemo: false });
 
   // 自动播放开关
   document.getElementById('auto-demo').addEventListener('change', e => {
     const on = e.target.checked;
     const speed = parseFloat(document.getElementById('p-speed').value) || 1;
-    syncPreview(t, { autoDemo: on, speed }); // 重渲染后由 wc-ready 自动恢复参数/控制项
+    // 编辑态下必须用「当前(已编辑)代码」重渲染，否则会回退到原始模板、与代码框不一致；
+    // 且 edited 内容已含设计 token，必须 tokenize:false 避免 :root{--wc-c1:var(--wc-c1)} 自引用。
+    syncPreview(edited ? currentCode() : t, { autoDemo: on, speed, tokenize: !edited });
   });
 
   // ── 控制面板：实时改变预览（含防抖 + 撤销历史） ──
@@ -294,7 +307,7 @@ if (!t) {
         } else if (id === 'p-speed') {
           el.value = s[k]; document.getElementById('v-speed').textContent = s[k].toFixed(1) + '×'; setDemoSpeed(iframe, s[k]);
         } else if (id === 'p-bg') {
-          el.value = s[k] || '#ffffff';
+          el.value = s[k] || bodyBg0;
         } else {
           el.value = s[k];
         }
@@ -323,6 +336,9 @@ if (!t) {
 
   // 参数变动后，把最新代码写回展示区（所见即所得，方便复制）
   function updateCode() {
+    // 编辑态：代码框保留用户编辑内容，禁止用原始模板 t 覆盖（否则拖滑块会丢失编辑）。
+    // 预览仍由 applyParams 实时联动，所见即所得不受影响。复制/下载走 currentCode() 已是编辑后内容。
+    if (edited) return;
     const code = buildCode(t, state);
     const refresh = (cid, lang, snippet) => {
       const box = document.getElementById(cid);
@@ -338,11 +354,13 @@ if (!t) {
   let _debounceTimer = null;
   function _debouncedApply() {
     clearTimeout(_debounceTimer);
-    // 防抖只负责「实时预览 + 代码同步」；撤销快照仅在鼠标松手('change')时入栈，
+    // 防抖只负责「实时预览 + 代码同步 + 演示速度」；撤销快照仅在鼠标松手('change')时入栈，
     // 避免一次拖拽产生几十条几乎相同的撤销记录，让 Ctrl+Z 一步还原一次调整。
+    // 速度变更并入此处，避免拖动速度滑块时每帧都 postMessage(setDemoSpeed)。
     _debounceTimer = setTimeout(() => {
       applyParams(iframe, state);
       updateCode();
+      setDemoSpeed(iframe, state.speed);
     }, 80);
   }
 
@@ -370,13 +388,12 @@ if (!t) {
   bind('p-c1', 'c1', v => v);
   bind('p-c2', 'c2', v => v);
   bind('p-bg', 'bg', v => v);
-  // 演示速度
+  // 演示速度（实时拖动只更新状态 + UI，setDemoSpeed 已并入 _debouncedApply 防抖）
   document.getElementById('p-speed').addEventListener('input', e => {
     const s = parseFloat(e.target.value) || 1;
     state.speed = s;
     document.getElementById('v-speed').textContent = s.toFixed(1) + '×';
     _debouncedApply();
-    setDemoSpeed(iframe, s);
   });
   document.getElementById('p-speed').addEventListener('change', () => {
     clearTimeout(_debounceTimer);
@@ -425,13 +442,16 @@ if (!t) {
   updateCode();
 
   document.getElementById('p-reset').addEventListener('click', () => {
+    // 若处于编辑态：先回到「模板 + 参数」模式——用原始模板重建干净 iframe，否则
+    // 预览会停留在用户编辑版本、而代码框被重置回模板，二者不一致。
+    if (edited) { edited = null; syncPreview(t, { autoDemo: false }); }
     state.size=1; state.x=0; state.y=0; state.c1=c1; state.c2=c2; state.bg=''; state.speed=1;
     applyParams(iframe, { radius: 'reset' }); // 先清除已应用的圆角，恢复模板原始圆角
     state.radius=null;
     ['p-size','p-x','p-y','p-radius'].forEach(id=>document.getElementById(id).value = id==='p-radius'?0:(id==='p-size'?1:0));
     document.getElementById('p-c1').value=c1;
     document.getElementById('p-c2').value=c2;
-    document.getElementById('p-bg').value='#ffffff';
+    document.getElementById('p-bg').value=bodyBg0;
     document.getElementById('p-speed').value=1;
     document.getElementById('v-speed').textContent='1.0×';
     setDemoSpeed(iframe, 1);
@@ -477,7 +497,17 @@ if (!t) {
       return null;
     }
     if (lang === 'html') {
-      const openTags = (code.match(/<(\w+)[^>]*>/g) || []).filter(t => !t.includes('/')).length;
+      // 排除 void / 自闭合元素（img、input、br、hr、meta、link、svg 的 path/circle 等），
+      // 否则含多个 <input> 的模板会被误判「开标签 > 闭标签」而拒绝应用编辑后的代码。
+      const VOID = /^(?:area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr|path|circle|rect|line|polyline|polygon|use|stop)$/i;
+      const starts = code.match(/<(\w+)[^>]*>/g) || [];
+      const openTags = starts.filter(m => {
+        const name = m.match(/<(\w+)/)[1];
+        if (VOID.test(name)) return false;     // void 元素无需闭合
+        if (/\/>$/.test(m.trim())) return false; // <x .../> 显式自闭合
+        if (m.includes('/')) return false;      // 其它含 / 的（罕见）
+        return true;
+      }).length;
       const closeTags = (code.match(/<\/\w+>/g) || []).length;
       // 宽松检测
       if (Math.abs(openTags - closeTags) > 3) return `HTML: 标签可能不匹配 (开标签 ${openTags}, 闭标签 ${closeTags})`;
@@ -507,6 +537,7 @@ if (!t) {
     // tokenize:false —— 用户编辑后的代码已是 buildCode 产物(含 :root{--wc-c1:#...} 覆盖块)，
     // 不可再次注入 var token，否则会生成 :root{--wc-c1:var(--wc-c1)} 自引用导致颜色失效。
     syncPreview(code, { autoDemo: false, tokenize: false });
+    edited = code; // 进入编辑态：后续滑块/重置不再覆盖此(已编辑)代码
     toast('代码已应用', 'success');
   }
   document.querySelectorAll('.wc-editable').forEach(pre => {
@@ -524,26 +555,26 @@ if (!t) {
   document.querySelectorAll('.copy-inline').forEach(btn => {
     btn.addEventListener('click', async () => {
       const pre = btn.closest('.group').querySelector('pre');
-      const text = pre ? pre.innerText : '';
+      // 用 textContent 而非 innerText：后者是 CSS 感知的，受 white-space/隐藏等影响可能丢换行；
+      // textContent 原样返回源码文本，复制结果最可靠。
+      const text = pre ? pre.textContent : '';
       await copyText(text);
       toast('已复制到剪贴板', 'success');
     });
   });
 
   document.getElementById('copy-all').addEventListener('click', async () => {
-    const code = buildCode(t, state);
-    const parts = [];
-    if (t.html) parts.push(`<!-- HTML -->\n${code.html}`);
-    if (t.css) parts.push(`/* CSS */\n${code.css}`);
-    if (t.js) parts.push(`/* JS */\n${code.js}`);
-    await copyText(parts.join('\n\n'));
+    // 复制「与预览一致」的完整可运行 HTML 文档（含居中布局、主题背景、设计 token），
+    // 与「下载 .html」共用 buildStandaloneHtml，所见即所得、粘贴即可运行。
+    const html = buildStandaloneHtml(t, state, currentCode());
+    await copyText(html);
     toast('全部代码已复制!', 'success');
   });
 
   document.getElementById('download').addEventListener('click', () => {
-    // 下载「当前参数调节后」的代码（与代码框显示一致，buildCode 合并了实时参数），
-    const code = buildCode(t, state);
-    const html = `<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8"><style>${code.css}</style></head>\n<body>\n${code.html}\n<script>${code.js}<\/script>\n</body></html>`;
+    // 下载「当前参数调节后」的代码（与预览一致）：复用 buildStandaloneHtml，
+    // body 居中 + 模板主题背景，打开即与详情页预览效果一致。
+    const html = buildStandaloneHtml(t, state, currentCode());
     const blob = new Blob([html], { type: 'text/html' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);

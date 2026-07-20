@@ -1,6 +1,7 @@
 import { initAppShell, templateCard, renderMiniPreviews, toast } from '../ui.js';
 import { getById, TEMPLATES } from '../data/index.js';
 import { store } from '../utils/storage.js';
+import { copyText } from '../utils/preview.js';
 
 window.__WC_TEMPLATES__ = TEMPLATES;
 initAppShell('workbench');
@@ -53,14 +54,17 @@ function newShareForm() {
   </div>`;
 }
 
-function sharesSection() {
-  const grid = shares.length
+function sharesGridHtml() {
+  return shares.length
     ? `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">${shares.map(shareCard).join('')}</div>`
     : `<p class="text-slate-400 text-sm mb-6">还没有共享卡片，先在下方新建一个吧。</p>`;
+}
+
+function sharesSection() {
   return `
   <div class="mb-12">
     <h2 class="text-xl font-bold mb-4">📦 我的共享卡片</h2>
-    ${grid}
+    <div id="shares-grid">${sharesGridHtml()}</div>
     ${newShareForm()}
   </div>`;
 }
@@ -76,17 +80,15 @@ app.innerHTML = `
 renderMiniPreviews();
 
 /* ---------- 共享卡片交互 ---------- */
-function escapeHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-
+// 局部刷新共享卡片网格：只重渲染 #shares-grid，不再重建整个区块，
+// 避免删除卡片时把用户正在填写的「新建共享卡片」表单清空。
 function refreshShares() {
   const data = store.get();
   shares.length = 0;
   (data.shares || []).forEach(x => shares.push(x));
-  const target = document.querySelector('#app .mb-12');
-  if (target) {
-    const tmp = document.createElement('div');
-    tmp.innerHTML = sharesSection();
-    target.replaceWith(tmp.firstElementChild);
+  const grid = document.getElementById('shares-grid');
+  if (grid) {
+    grid.innerHTML = sharesGridHtml();
     bindShareEvents();
   }
 }
@@ -99,29 +101,20 @@ function bindShareEvents() {
     store.set({ shares: data.shares });
     refreshShares();
   });
-  document.querySelectorAll('[data-use]').forEach(b => b.onclick = () => {
+  document.querySelectorAll('[data-use]').forEach(b => b.onclick = async () => {
     const p = shares.find(x => x.id === b.dataset.use);
     if (!p) return;
-    navigator.clipboard?.writeText(p.code || '').catch(()=>{});
+    await copyText(p.code || '');
     toast('已复制「' + p.name + '」到剪贴板', 'success');
   });
-  document.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => {
+  document.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
     const p = shares.find(x => x.id === b.dataset.copy);
     if (!p) return;
-    navigator.clipboard?.writeText(p.code || '').catch(()=>{});
+    await copyText(p.code || '');
     toast('代码已复制', 'success');
   });
-  // 为 3D 卡片绑定鼠标跟踪
-  document.querySelectorAll('[data-card-3d]').forEach(card => {
-    card.addEventListener('mousemove', e => {
-      const rect = card.getBoundingClientRect();
-      const x = e.clientX - rect.left, y = e.clientY - rect.top;
-      const cx = rect.width / 2, cy = rect.height / 2;
-      const rx = ((y - cy) / cy) * -8, ry = ((x - cx) / cx) * 8;
-      card.style.transform = `perspective(800px) rotateX(${rx.toFixed(1)}deg) rotateY(${ry.toFixed(1)}deg) translateY(-4px)`;
-    });
-    card.addEventListener('mouseleave', () => { card.style.transform = ''; });
-  });
+  // 3D 悬浮倾斜由全局 bindCardTilt（ui.js，rAF 节流 + 尊重 prefers-reduced-motion）统一接管，
+  // 此处不再逐卡片绑定，避免与全局委托的 transform 互相打架、保证 reduced-motion 行为一致。
 }
 
 document.getElementById('ns-add').onclick = () => {

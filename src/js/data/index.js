@@ -23,6 +23,7 @@ export function search(q) {
   return TEMPLATES.filter(t =>
     t.title.toLowerCase().includes(q) ||
     (t.desc || '').toLowerCase().includes(q) ||
+    (t.id || '').toLowerCase().includes(q) ||          // 同时匹配模板 id（如输入 ripple 可搜到 cp-btn-ripple）
     (t.tags || []).some(tg => tg.toLowerCase().includes(q))
   );
 }

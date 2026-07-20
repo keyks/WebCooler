@@ -2,6 +2,9 @@
 // 关键修复：采用「占位符 tokenize」策略——先把字符串/注释抽成占位符，
 // 完成关键字/函数/数字着色后再还原。这样关键字表里的 class / span 等词
 // 永远不会误匹配到已生成的 <span class="..."> 标签内部，杜绝坏嵌套。
+// 纯函数 + 幂等：相同 (lang, code) 必然产生相同输出。记忆化可避免详情页拖拽滑块时
+//（每帧 updateCode）对大段 HTML/CSS/JS 反复做多趟正则高亮的开销。
+const _hlCache = new Map(); // key: `${lang} ${raw}` → highlighted html
 function escapeHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -20,8 +23,9 @@ function highlightHtml(code) {
 
   // 注释
   s = s.replace(/(&lt;!--[\s\S]*?--&gt;)/g, (m) => stash('tok-comment', m));
-  // 属性字符串值
-  s = s.replace(/(&quot;[^&]*&quot;|"[^"]*")/g, (m) => stash('tok-string', m));
+  // 属性字符串值（escapeHtml 后裸 " 已变 &quot;，且属性值内可能含 &amp;，
+  // 故用非贪婪 [\s\S]*? 跨任意字符匹配，避免被 & 截断导致后续高亮嵌套破碎）
+  s = s.replace(/&quot;[\s\S]*?&quot;/g, (m) => stash('tok-string', m));
   // 标签名
   s = s.replace(/(&lt;\/?)([\w-]+)/g, (_m, p1, p2) => p1 + stash('tok-tag', p2));
   // 属性名
@@ -51,7 +55,8 @@ function highlightJs(code) {
 
   // 1) 注释、字符串先抽走（避免其内部被后续规则误伤）
   s = s.replace(/(\/\/[^\n]*)/g, (m) => stash('tok-comment', m));
-  s = s.replace(/('[^']*'|"[^"]*"|`[^`]*`)/g, (m) => stash('tok-string', m));
+  // escapeHtml 后双引号已转成 &quot;，故 JS 双引号字符串需用 &quot;[\s\S]*?&quot; 提取
+  s = s.replace(/('[^']*'|&quot;[\s\S]*?&quot;|`[^`]*`)/g, (m) => stash('tok-string', m));
   // 2) 函数名（标识符后紧跟左括号）
   s = s.replace(/([A-Za-z_$][\w$]*)(\s*\()/g, (_m, name, paren) => stash('tok-fn', name) + paren);
   // 3) 关键字
@@ -85,8 +90,16 @@ function stripHighlight(s) {
 export function highlight(code, lang) {
   // 防御：若输入里已含高亮 span，先还原为纯文本再高亮，保证幂等
   const raw = /class="tok-/.test(code) ? stripHighlight(code) : code;
-  if (lang === 'html') return highlightHtml(raw);
-  if (lang === 'css') return highlightCss(raw);
-  if (lang === 'js') return highlightJs(raw);
-  return escapeHtml(raw);
+  const key = lang + ' ' + raw;
+  const hit = _hlCache.get(key);
+  if (hit !== undefined) return hit;
+  let out;
+  if (lang === 'html') out = highlightHtml(raw);
+  else if (lang === 'css') out = highlightCss(raw);
+  else if (lang === 'js') out = highlightJs(raw);
+  else out = escapeHtml(raw);
+  // 上限保护：模板数量有限，正常极少触发；防止极端情况下缓存无限增长
+  if (_hlCache.size > 400) _hlCache.clear();
+  _hlCache.set(key, out);
+  return out;
 }

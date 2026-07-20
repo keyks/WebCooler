@@ -15,7 +15,15 @@
 
 // 扫描模板 CSS 中按出现顺序的第一个"非透明/非白色"背景色，判定亮/暗主题。
 // 暗色模板的预览不再被强制白色 body 包围，视觉效果大幅提升。
+const _themeCache = new WeakMap();
 export function detectTheme(t) {
+  const hit = _themeCache.get(t);
+  if (hit !== undefined) return hit;
+  const _r = _detectThemeImpl(t);
+  _themeCache.set(t, _r);
+  return _r;
+}
+function _detectThemeImpl(t) {
   const css = t.css || '';
   const re = /background(?:-color)?\s*:\s*((?:#[0-9a-fA-F]{3,8})|(?:rgba?\s*\([^)]+\)))\b/gi;
   let m;
@@ -51,12 +59,28 @@ export function detectTheme(t) {
   const hasWhiteBg = /background(?:-color)?\s*:\s*(#fff\b|#ffffff\b|white\b)/i.test(cssLower);
 
   if (!hasWhiteBg) {
-    // 提取所有 color:white 出现位置附件的选择器，判断是否为结构级
     const structSelectors = /(?:^|\})\s*(body|html|\*|:root|#wc-root|\.container|\.wrapper|\.page|\.main)\s*\{/gi;
     const textRe = /(?:^|[^-])color\s*:\s*(#fff\b|#ffffff\b|white\b|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\))/gi;
     const textMatches = [...cssLower.matchAll(textRe)];
 
+    // 「裸露白字」：所在规则自身没有声明任何不透明背景 → 需暗底才可见
+    //（故障风 / 霓虹文字等用 color:#fff 但不写背景）。与「蓝底白字按钮」区分：
+    // 后者 white 字规则同时声明了 background，不算裸露，不会误判为暗色主题。
+    let bareWhite = 0;
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+    let rm;
+    while ((rm = ruleRe.exec(cssLower)) !== null) {
+      const body = rm[2];
+      if (/(^|[^-])color\s*:\s*(#fff\b|#ffffff\b|white\b|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\))/.test(body)) {
+        const hasOwnBg = /background(?:-color)?\s*:\s*((?!transparent|none)[^;]+)/i.test(body) ||
+                         /background(?:-image)?\s*:[^;]*(gradient|url\()/i.test(body);
+        if (!hasOwnBg) bareWhite++;
+      }
+    }
+
     if (textMatches.length >= 3) return 'dark'; // 大量白字 → 大概率暗色主题
+
+    if (bareWhite >= 1) return 'dark'; // 裸露白字 → 暗色主题（白字在白底不可见）
 
     if (textMatches.length > 0) {
       // 检查是否在结构级选择器上下文中
@@ -99,42 +123,51 @@ function isNeutral(hex) {
 // 返回 { c1, c2, bg, map }：
 //   - c1/c2/bg：用于初始化滑块的默认值
 //   - map：原始颜色值 → 变量名的映射（仅包含需要被变量替换的值）
+// 同一模板对象的 token 解析结果不变，按引用缓存：拖动滑块时 buildCode / renderPreview
+// 会对同一 t 反复调用 parseTokens，缓存后避免每次都正则全量扫描 CSS。
+const _tokensCache = new WeakMap();
 function parseTokens(t) {
+  const cacheable = t && typeof t === 'object';
+  if (cacheable && _tokensCache.has(t)) return _tokensCache.get(t);
+
   const css = t.css || '';
   const explicit = t.tokens || null;
+  let result;
 
   // 1) 显式 token
   if (explicit && (explicit.c1 || explicit.c2)) {
     const map = {};
     const c1 = (explicit.c1 || '').toLowerCase();
     const c2 = (explicit.c2 || '').toLowerCase();
-    const bg = (explicit.bg || '').toLowerCase();
     if (c1) map[c1] = '--wc-c1';
     if (c2 && c2 !== c1) map[c2] = '--wc-c2';
-    return {
+    result = {
       c1: explicit.c1 || '#2f83ff',
       c2: explicit.c2 || '#8b5cf6',
       bg: explicit.bg || '',
       map
     };
+  } else {
+    // 2) 自动扫描：优先判定「语义主色」
+    const re = /#[0-9a-fA-F]{3,8}\b/g;
+    const order = [];      // 有序去重的候选彩色
+    let m;
+    while ((m = re.exec(css))) {
+      const c = m[0].toLowerCase();
+      if (order.includes(c)) continue;
+      if (isNeutral(c)) continue; // 灰阶/黑白/极浅背景不计入主色
+      order.push(c);
+    }
+    const c1 = order[0] || '#2f83ff';
+    const c2 = order[1] && order[1] !== c1 ? order[1] : (order[1] || '#8b5cf6');
+    const map = {};
+    map[c1] = '--wc-c1';
+    if (c2 && c2 !== c1) map[c2] = '--wc-c2';
+    result = { c1, c2, bg: '', map };
   }
 
-  // 2) 自动扫描：优先判定「语义主色」
-  const re = /#[0-9a-fA-F]{3,8}\b/g;
-  const order = [];      // 有序去重的候选彩色
-  let m;
-  while ((m = re.exec(css))) {
-    const c = m[0].toLowerCase();
-    if (order.includes(c)) continue;
-    if (isNeutral(c)) continue; // 灰阶/黑白/极浅背景不计入主色
-    order.push(c);
-  }
-  const c1 = order[0] || '#2f83ff';
-  const c2 = order[1] && order[1] !== c1 ? order[1] : (order[1] || '#8b5cf6');
-  const map = {};
-  map[c1] = '--wc-c1';
-  if (c2 && c2 !== c1) map[c2] = '--wc-c2';
-  return { c1, c2, bg: '', map };
+  if (cacheable) _tokensCache.set(t, result);
+  return result;
 }
 
 // 将 CSS 中的「字面量颜色」替换为对应 CSS 变量。
@@ -142,10 +175,31 @@ function parseTokens(t) {
 function injectVarTokens(css, map) {
   if (!css || !map || !Object.keys(map).length) return css;
   let out = css;
-  for (const [raw, varName] of Object.entries(map)) {
+  // 按「原始值长度」降序替换：先替换较长的颜色（如 8 位 #rrggbbaa），再替换较短的
+  // （如 6 位 #rrggbb），从根本上避免短值先跑时匹配到长值前缀的顺序依赖问题。
+  const entries = Object.entries(map).sort((a, b) => b[0].length - a[0].length);
+  for (const [raw, varName] of entries) {
     const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    out = out.replace(new RegExp(escaped, 'gi'), `var(${varName})`);
+    // 关键（真实 bug 修复）：当原始值是十六进制颜色时，末尾追加「非 hex 字符」负向前瞻，
+    // 防止 #2f83ff 误匹配 #2f83ff00（8 位含 alpha）的前 7 个字符——否则 #2f83ff00 会被
+    // 破坏成 var(--wc-c1)00 这种无效 token，导致该色标（常为透明渐变端）整体失效。
+    // 例：ms-follow-dot 的 radial-gradient(circle,#2f83ff,#2f83ff00) 光点渐变。
+    const boundary = /^#[0-9a-fA-F]+$/.test(raw) ? '(?![0-9a-fA-F])' : '';
+    out = out.replace(new RegExp(escaped + boundary, 'gi'), `var(${varName})`);
   }
+  return out;
+}
+
+// 把「同一模板的 token 化 CSS」按引用缓存：injectVarTokens 是确定性正则替换
+//（仅依赖 t.css 与 parseTokens(t).map），与运行时状态无关；详情页拖拽滑块时
+// buildCode 每帧调用，缓存后避免对大段 CSS 反复做多趟正则替换。
+const _varCssCache = new WeakMap();
+function getTokenizedCss(t) {
+  const hit = _varCssCache.get(t);
+  if (hit !== undefined) return hit;
+  const tokens = parseTokens(t);
+  const out = injectVarTokens(t.css || '', tokens.map);
+  _varCssCache.set(t, out);
   return out;
 }
 
@@ -438,7 +492,7 @@ export function renderPreview(container, t, { autoDemo = false, speed = 1, token
   //      已经是 buildCode() 的产物，内含 `:root{--wc-c1:#xxx}` 覆盖块；若再次
   //      injectVarTokens 会把该块里的 #xxx 也替换成 var(--wc-c1)，造成
   //      `:root{--wc-c1:var(--wc-c1)}` 自引用 -> 颜色整体失效。
-  const cssWithVars = tokenize ? injectVarTokens(t.css || '', tokens.map) : (t.css || '');
+  const cssWithVars = tokenize ? getTokenizedCss(t) : (t.css || '');
 
   const theme = detectTheme(t);
   const bodyBg = theme === 'dark' ? '#111827' : '#ffffff';
@@ -554,12 +608,54 @@ function extractRoundSelectors(css) {
   return out;
 }
 
+// 提取「原本就带有非 0 圆角」的选择器，用于导出代码时让圆角只作用于这些元素，
+// 与实时预览运行时 collectRoundEls 的行为保持一致（保证所见即所得）。
+// 排除：语义性圆形/胶囊（border-radius:50% 或 >=999px）与 0 值——
+// 前者交给 extractRoundSelectors 单独保护；后者无需处理。
+function extractRoundedSelectors(css) {
+  const out = [];
+  if (!css) return out;
+  const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+  let m;
+  while ((m = ruleRe.exec(css))) {
+    const selector = m[1].trim();
+    const body = m[2];
+    const brMatch = /border-radius\s*:\s*([^;]+)/i.exec(body);
+    if (!brMatch) continue;
+    const val = brMatch[1].trim();
+    if (/^(0|0px)\b/i.test(val)) continue;                                       // 0 值
+    if (/(^|[^0-9])(5[0-9]|[6-9][0-9]|100)%/.test(val)) continue;                // 语义圆/胶囊
+    if (/(999|[1-9]\d{3,})px/.test(val)) continue;                               // 大圆角胶囊
+    out.push(selector);
+  }
+  return out;
+}
+
 // 把控制参数合并进模板源码，生成"所见即所得"的可复制代码。
 // 返回 { html, css, js } 三个字符串。
 // 颜色按「token 变量」写入，与预览效果 100% 一致且只影响目标对象。
 // params 额外支持：
 //   controls    : 该模板的专属控制项定义数组（来自 inferControls）
 //   ctrlValues  : { key: value } 各专属控制项当前值
+// 圆角 selector 提取（extractRoundedSelectors / extractRoundSelectors）也是确定性正则扫描，
+// 由 t.css 唯一决定；拖拽圆角滑块时 buildCode 每帧调用，缓存避免重复扫描大段 CSS。
+const _roundedCache = new Map();
+const _roundCache = new Map();
+function cachedRounded(css) {
+  const hit = _roundedCache.get(css);
+  if (hit !== undefined) return hit;
+  const r = extractRoundedSelectors(css);
+  _roundedCache.set(css, r);
+  return r;
+}
+function cachedRound(css) {
+  const hit = _roundCache.get(css);
+  if (hit !== undefined) return hit;
+  const r = extractRoundSelectors(css);
+  _roundCache.set(css, r);
+  return r;
+}
+
 export function buildCode(t, params = {}) {
   const { size = 1, x = 0, y = 0, radius = null, c1, c2, bg, speed = 1, controls = [], ctrlValues = {} } = params;
   const tokens = parseTokens(t);
@@ -574,15 +670,20 @@ export function buildCode(t, params = {}) {
   }
 
   // CSS：先把主色/辅色字面量替换为变量，再在 :root 注入默认值与用户调节值
-  let css = injectVarTokens(t.css || '', tokens.map);
+  let css = getTokenizedCss(t);
   let override = '\n/* WebCooler 实时参数（设计 token） */\n';
   override += `:root{\n  --wc-c1: ${c1 || tokens.c1};\n  --wc-c2: ${c2 || tokens.c2};\n}`;
   if (bg) override += `\nbody{background:${bg} !important}`;
   if (radius != null) {
-    override += `\n#wc-root div,#wc-root section,#wc-root article,#wc-root aside,#wc-root nav,#wc-root main,#wc-root header,#wc-root footer,#wc-root ul,#wc-root li,#wc-root span,#wc-root a{border-radius:${radius}px !important}`;
+    // 仅作用于「模板原本就带圆角」的元素，与实时预览运行时 collectRoundEls 一致，
+    // 避免旧版把圆角强加给全部 div/span/a/li，导致扁平文本块也被圆角化的不一致。
+    const rounded = cachedRounded(t.css || '');
+    const targets = rounded.length ? rounded : ['.card', '.box', '.b', '.c'];
+    const sel = targets.map(s => `#wc-root ${s}`).join(',');
+    override += `\n/* 圆角：仅作用于模板原本有圆角的元素（与实时预览一致） */\n${sel}{border-radius:${radius}px !important}`;
     // 保护「语义性圆形/胶囊」：原 CSS 中声明了 border-radius:50%（或 9999px 等大圆角）
     // 的选择器，其圆角是核心造型，不应被上面的通用圆角覆盖。为它们补一条恢复规则。
-    const roundSelectors = extractRoundSelectors(t.css || '');
+    const roundSelectors = cachedRound(t.css || '');
     if (roundSelectors.length) {
       const sel = roundSelectors.map(s => `#wc-root ${s}`).join(',');
       override += `\n/* 保持圆形/胶囊造型不被圆角滑块破坏 */\n${sel}{border-radius:50% !important}`;
@@ -635,11 +736,50 @@ export function buildCode(t, params = {}) {
   return { html, css, js };
 }
 
+// 生成「与预览 100% 一致」的完整可运行 HTML 文档（含居中布局、主题背景、设计 token）。
+// 供「复制全部代码」「下载 .html」共用，确保「复制/下载即所见」：
+//  - 预览里 #wc-root 被 body(flex 居中) 包裹、并以模板主题色作为背景，下载版完全复刻该布局；
+//  - 颜色沿用 buildCode 注入的 :root token（--wc-c1/--wc-c2），与实时参数控制一致。
+// 旧版下载/复制的 HTML 是裸 <body>（打开后左上角对齐、白底），与预览效果脱节；
+// 现统一收敛到该函数，避免重复拼接逻辑与「所见非所得」。
+export function buildStandaloneHtml(t, params = {}, code) {
+  // code 可选：传入「当前代码框（可能已被用户编辑）」时直接复用，避免二次 buildCode
+  // 重新 token 化导致 :root{--wc-c1:var(--wc-c1)} 自引用、颜色失效，保证与编辑后预览一致。
+  // 不传则按 (t, params) 正常构建（首页/分类页等未编辑场景的复制/下载）。
+  const built = code || buildCode(t, params);
+  const theme = detectTheme(t);
+  const bodyBg = theme === 'dark' ? '#111827' : '#ffffff';
+  const bodyColor = theme === 'dark' ? '#e2e8f0' : 'inherit';
+  const title = (t.title || 'WebCooler 模板').replace(/[<>&"]/g, '');
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title}</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;background:${bodyBg};color:${bodyColor}}
+body{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:16px;overflow:auto;-webkit-overflow-scrolling:touch}
+#wc-root{max-width:100%;position:relative}
+</style>
+<style>
+${built.css}
+</style>
+</head>
+<body>
+${built.html}
+<script>
+${built.js}
+<\/script>
+</body>
+</html>`;
+}
+
 // 解析模板 css，提取可调节参数（颜色 + 主要尺寸）。
 // 供详情页初始化滑块默认值使用。
 export function extractParams(css = '') {
   const tokens = parseTokens({ css: css || '' });
-  const colors = Object.keys(tokens.map).map(k => tokens.map[k] === '--wc-c1' ? tokens.c1 : tokens.c2);
   const re = /#[0-9a-fA-F]{3,8}\b/g;
   const all = [];
   let m;

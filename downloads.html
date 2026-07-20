@@ -3,6 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // 在首屏绘制前同步应用主题，消除深浅色切换的闪白/闪黑（FOUC）
+      (function () {
+        try {
+          var t = localStorage.getItem('webcooler_theme');
+          var dark = t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
     <title>关于我们 — WebCooler</title>
     <link rel="stylesheet" href="./src/styles/main.css" />
   </head>

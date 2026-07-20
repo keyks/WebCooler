@@ -1,4 +1,4 @@
-import { initAppShell, templateCard, renderMiniPreviews, destroyMiniPreviews } from '../ui.js';
+import { initAppShell, templateCard, renderMiniPreviews } from '../ui.js';
 import { TEMPLATES, getByCat, search } from '../data/index.js';
 import { CATEGORIES } from '../data/categories.js';
 
@@ -33,35 +33,43 @@ const grid = document.getElementById('grid');
 const countEl = document.getElementById('count');
 const emptyEl = document.getElementById('empty');
 
-function render() {
-  let list = curCat ? getByCat(curCat) : TEMPLATES.slice();
-  // 组合筛选：分类 + 关键词搜索同时生效（之前搜索会覆盖分类筛选，导致选了分类再搜索时丢失分类）
-  if (curQ) list = list.filter(t => search(curQ).includes(t));
-  countEl.textContent = `共 ${list.length} 个模板`;
-  if (!list.length) {
-    grid.innerHTML = ''; emptyEl.classList.remove('hidden');
-    // 清空时也清理预览 observer，避免残留引用
-    destroyMiniPreviews();
-    return;
-  }
-  emptyEl.classList.add('hidden');
-  // 返回时携带当前分类/搜索筛选，确保回到原来的筛选结果
-  const backUrl = 'categories.html' + (location.search ? location.search : '');
-  // 重要：重新渲染前清理旧 observer 和缓存，避免内存泄漏 + 新旧 iframe 叠加
-  destroyMiniPreviews();
-  grid.innerHTML = list.map(t => templateCard(t, { from: 'category', back: backUrl })).join('');
+const byId = new Map(TEMPLATES.map(t => [t.id, t]));
+
+// 全量构建一次：始终渲染全部模板到 DOM，之后仅「隐藏/显示」实现分类+搜索过滤，
+// 避免反复重建 247 个 DOM 节点与重新加载 mini iframe（分类切换/搜索更跟手、无闪烁）。
+// 隐藏卡片为 display:none，IntersectionObserver 不会渲染其 iframe，省资源。
+let _built = false;
+function buildGrid() {
+  if (_built) return;
+  const back = backUrl();
+  grid.innerHTML = TEMPLATES.map(t => templateCard(t, { from: 'category', back })).join('');
   renderMiniPreviews();
-  // 绑定 3D 卡片效果
-  grid.querySelectorAll('[data-card-3d]').forEach(card => {
-    card.addEventListener('mousemove', e => {
-      const rect = card.getBoundingClientRect();
-      const x = e.clientX - rect.left, y = e.clientY - rect.top;
-      const cx = rect.width / 2, cy = rect.height / 2;
-      const rx = ((y - cy) / cy) * -8, ry = ((x - cx) / cx) * 8;
-      card.style.transform = `perspective(800px) rotateX(${rx.toFixed(1)}deg) rotateY(${ry.toFixed(1)}deg) translateY(-4px)`;
-    });
-    card.addEventListener('mouseleave', () => { card.style.transform = ''; });
+  _built = true;
+}
+
+// 返回地址携带当前分类/搜索筛选，让详情页「返回」能回到筛选结果
+function backUrl() {
+  const p = new URLSearchParams();
+  if (curCat) p.set('cat', curCat);
+  if (curQ) p.set('q', curQ);
+  const qs = p.toString();
+  return 'categories.html' + (qs ? '?' + qs : '');
+}
+
+// 仅切换显示/隐藏，不重建 DOM（卡片已全量在 DOM 中）
+function applyFilter() {
+  let list = curCat ? getByCat(curCat) : TEMPLATES.slice();
+  if (curQ) {
+    const matched = new Set(search(curQ));
+    list = list.filter(t => matched.has(t));
+  }
+  const inSet = new Set(list);
+  grid.querySelectorAll('[data-card]').forEach(card => {
+    const t = byId.get(card.dataset.card);
+    card.classList.toggle('hidden', !t || !inSet.has(t));
   });
+  countEl.textContent = `共 ${list.length} 个模板`;
+  emptyEl.classList.toggle('hidden', list.length > 0);
 }
 
 document.getElementById('cats').addEventListener('click', e => {
@@ -72,12 +80,16 @@ document.getElementById('cats').addEventListener('click', e => {
     const on = x.dataset.c === curCat;
     x.className = 'cat px-3 py-1.5 rounded-lg text-sm ' + (on ? 'bg-brand-600 text-white' : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700');
   });
-  render();
+  applyFilter();
 });
 
+// 搜索防抖：只切换显示/隐藏，不再重建 grid + 重载 mini iframe
+let _searchTimer = null;
 document.getElementById('search').addEventListener('input', e => {
   curQ = e.target.value.trim();
-  render();
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(applyFilter, 180);
 });
 
-render();
+buildGrid();
+applyFilter();

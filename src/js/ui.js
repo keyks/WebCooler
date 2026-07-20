@@ -1,7 +1,7 @@
 import { CATEGORIES } from './data/categories.js';
 import { initTheme, toggleTheme } from './utils/theme.js';
 import { store } from './utils/storage.js';
-import { detectTheme, buildCode, copyText } from './utils/preview.js';
+import { detectTheme, buildCode, copyText, buildStandaloneHtml } from './utils/preview.js';
 
 // ── 全局工具：Toast 通知系统 ──
 let _toastTimer = null;
@@ -15,7 +15,8 @@ export function toast(msg, type = 'info') {
     document.body.appendChild(el);
   }
   const colors = { info: 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-800', success: 'bg-emerald-600 text-white', error: 'bg-red-600 text-white' };
-  el.className = el.className.replace(/bg-\S+|text-\S+/g, '');
+  // 只移除颜色类（bg/text + 颜色前缀），避免误删 text-sm / text-xs 等字号类
+  el.className = el.className.replace(/bg-(slate|emerald|red)-\S+|text-(white|slate|emerald|red)-\S+/g, '');
   el.className += ' ' + (colors[type] || colors.info);
   el.textContent = msg;
   el.classList.remove('opacity-0', 'translate-y-4');
@@ -35,8 +36,9 @@ function _resolveCard(btn) {
   return (window.__WC_TEMPLATES__ || []).find(t => t.id === id) || null;
 }
 function _downloadTemplateHtml(t) {
-  const code = buildCode(t, {});
-  const html = `<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8"><style>${code.css}</style></head>\n<body>\n${code.html}\n<script>${code.js}<\/script>\n</body></html>`;
+  // 复用 buildStandaloneHtml：与详情页「下载」共用同一份逻辑，
+  // 保证卡片快速操作下载的 .html 与详情页、预览效果完全一致的居中布局与主题背景。
+  const html = buildStandaloneHtml(t, {});
   const blob = new Blob([html], { type: 'text/html' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -159,7 +161,7 @@ export function templateCard(t, { fav = false, from = '', back = '' } = {}) {
   if (back) params.set('back', back);
   const isFav = store.isFav(t.id);
   return `
-  <a href="detail.html?${params.toString()}" class="group wc-card p-4 block" data-card="${t.id}" data-card-3d>
+  <a href="detail.html?${params.toString()}" class="group wc-card p-4 block transition-transform duration-150 ease-out will-change-transform" data-card="${t.id}" data-card-3d>
     <div class="preview-frame h-52 mb-3 flex items-center justify-center overflow-hidden bg-slate-50 dark:bg-slate-800 relative" data-mini="${t.id}">
       <div class="wc-skeleton absolute inset-0" style="animation-delay:${Math.random()*0.5}s"></div>
       <span class="wc-mini-hint text-slate-300 dark:text-slate-600 text-xs absolute z-10">预览</span>
@@ -182,7 +184,8 @@ export function templateCard(t, { fav = false, from = '', back = '' } = {}) {
 }
 
 // ── Mini 预览引擎核心 ──
-// 静态内容缓存：相同模板 ID + staticMode 复用已构建的 HTML，避免重复 doc.write
+// mini HTML 缓存：相同模板 ID + staticMode 复用已构建的 HTML（含动态 demo 脚本），
+// 避免重复拼接大段字符串；普通用户（非 reduced-motion）也命中，分类页反复 render 复用。
 const _miniCache = new Map(); // key: `${id}::${staticMode}` → htmlString
 function _miniCacheKey(id, staticMode) { return `${id}::${staticMode}`; }
 
@@ -261,14 +264,18 @@ function mountMini(f, t, staticMode) {
   <\/script>`;
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">${baseCss}</head><body><div id="wc-fit">${t.html||''}</div>${staticMode?'':`<script>${t.js||''}<\/script>`}${demo}${fit}</body></html>`;
 
-  // 缓存静态内容（动态内容不缓存，因为每次可能需要不同状态）
-  if (staticMode) {
-    _miniCache.set(key, html);
-    // 限制缓存大小：最多 60 个条目
-    if (_miniCache.size > 60) {
-      const first = _miniCache.keys().next().value;
-      _miniCache.delete(first);
-    }
+  // 缓存 mini HTML：内容完全由「模板 t + staticMode」决定，与运行时演示进度无关
+  //（demo 脚本是确定性 JS，每次生成相同），因此无论静态还是动态模式都可安全复用
+  //（key 已区分 staticMode）。普通用户（prefers-reduced-motion 关闭）走动态模式也命中，
+  // 避免每次渲染卡片都重新拼接大段 demo 脚本；分类页反复搜索/切分类重建 grid 后，
+  // 同一模板直接复用缓存 srcdoc，显著降低字符串拼接与正则开销。
+  _miniCache.set(key, html);
+  // 限制缓存大小：最多 320 个条目（覆盖全站 247 个模板 × 静态/动态两种模式），
+  // 超出淘汰最早写入者（Map 保持插入序）。足够大以让分类页滚动回看任一卡片时
+  // 直接复用已缓存的 srcdoc，避免反复拼接大段 demo 脚本；又不至于无上限增长。
+  if (_miniCache.size > 320) {
+    const first = _miniCache.keys().next().value;
+    _miniCache.delete(first);
   }
 
   // 沙箱 iframe 下 contentDocument 为 null，doc.open() 会崩溃；
@@ -278,6 +285,7 @@ function mountMini(f, t, staticMode) {
 
 // ── Mini 预览懒加载 + 可视区域感知 ──
 let _miniObserver = null;
+let _unmountObserver = null;
 let _miniPending = [];
 let _miniScheduled = false;
 
@@ -296,17 +304,43 @@ function _getMiniObserver() {
   return _miniObserver;
 }
 
+// ── 离屏回收：远离视口时卸载 iframe 释放内存/CPU，回到视口（渲染 observer 预载）再重建 ──
+function _getUnmountObserver() {
+  if (_unmountObserver) return _unmountObserver;
+  _unmountObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      const el = entry.target;
+      if (entry.isIntersecting) return; // 仍在视口附近，保留 iframe
+      unmountMini(el);
+      // 重新加入渲染队列（保留 600px 预载），回到视口时用缓存 srcdoc 重建
+      if (el.isConnected) _getMiniObserver().observe(el);
+    });
+  }, { rootMargin: '900px 0px 900px 0px' }); // 卸载阈值(900px) 必须 > 渲染预载(600px)，
+  // 否则 300~600px 区间的卡片会被「刚渲染又被卸载」反复震荡；900px 外才回收。
+  return _unmountObserver;
+}
+
+function unmountMini(el) {
+  const f = el.querySelector('iframe');
+  if (f) f.remove();
+  // 卸载后恢复骨架占位，回到视口重建时平滑过渡（避免闪现空白）
+  const sk = el.querySelector('.wc-skeleton');
+  if (sk) { sk.style.opacity = '1'; sk.style.zIndex = ''; }
+  if (_unmountObserver) _unmountObserver.unobserve(el);
+}
+
 function _scheduleMiniRender() {
   if (_miniScheduled) return;
   _miniScheduled = true;
-  // 使用 requestIdleCallback 在浏览器空闲时渲染，避免阻塞主线程
-  const schedule = window.requestIdleCallback || (fn => setTimeout(fn, 1));
-  schedule(() => {
+  // 用 setTimeout(0) 而非 requestIdleCallback：在大量 iframe 创建/回收的突发场景下，
+  // headless/低端机上 rIC 会被长期推迟（即便带 timeout），导致大跨度滚动后预览迟迟不出现。
+  // setTimeout(0) 保证队列持续推进；每批 4 个并级联调度，既流畅又不会长时间空白。
+  setTimeout(() => {
     _miniScheduled = false;
-    const batch = _miniPending.splice(0, 4); // 每帧最多处理 4 个，避免卡顿
+    const batch = _miniPending.splice(0, 4); // 每批最多处理 4 个，避免单次阻塞过久
     batch.forEach(el => _renderOneMini(el));
     if (_miniPending.length > 0) _scheduleMiniRender(); // 继续下一批
-  }, { timeout: 100 });
+  }, 0);
 }
 
 function _renderOneMini(el) {
@@ -338,29 +372,86 @@ function _renderOneMini(el) {
   f.addEventListener('load', cleanup, { once: true });
   // 兜底：极端环境 load 未触发时，避免骨架常驻
   setTimeout(cleanup, 800);
-  mountMini(f, t, false);
+  // 尊重「减少动态效果」：reduced-motion 用户以静态（staticMode）渲染 mini 预览，
+  // 不注入 js/demo，不自动播放动效，与全局 bindCardTilt 的 reduced-motion 守卫保持一致。
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  mountMini(f, t, reduce);
 
-  // 悬停时启动自动演示（实时预览），离开时停止并复位，避免卡片自动跳转
-  el.addEventListener('mouseenter', () => { postMini(el, 'wc-mini-start'); setTimeout(() => postMini(el, 'wc-mini-start'), 280); });
-  el.addEventListener('mouseleave', () => postMini(el, 'wc-mini-stop'));
+  // 渲染完成后加入「离屏回收」观察：远离视口时卸载 iframe 释放内存/CPU，
+  // 回到视口（渲染 observer 预载）再复用缓存 srcdoc 重建，避免 247 个卡片常驻并发 iframe。
+  _getUnmountObserver().observe(el);
 }
 
 export function renderMiniPreviews(root = document) {
   const observer = _getMiniObserver();
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   root.querySelectorAll('[data-mini]').forEach(el => {
     observer.observe(el);
+    // hover 一次性绑定（元素级）：进入启动实时演示、离开停止并复位；
+    // 移到此处避免每次回收重建 iframe 时重复绑定监听。reduced-motion 下跳过。
+    if (!el.dataset._miniHoverBound) {
+      el.dataset._miniHoverBound = '1';
+      if (!reduce) {
+        el.addEventListener('mouseenter', () => { postMini(el, 'wc-mini-start'); setTimeout(() => postMini(el, 'wc-mini-start'), 280); });
+        el.addEventListener('mouseleave', () => postMini(el, 'wc-mini-stop'));
+      }
+    }
   });
+}
+
+// 软重置：断开 observer 并清空待渲染队列，但「保留 _miniCache」——
+// 分类页反复搜索/切分类时 grid 会被重建，新卡片用同一模板 ID 仍能命中缓存，
+// 直接复用已构建的 srcdoc，避免每次 render 都重新拼接大段 demo 脚本。
+// 仅在页面彻底销毁（如搜索空结果）时才调用 destroyMiniPreviews（含清缓存）。
+export function resetMiniObserver() {
+  if (_miniObserver) { _miniObserver.disconnect(); _miniObserver = null; }
+  if (_unmountObserver) { _unmountObserver.disconnect(); _unmountObserver = null; }
+  _miniPending = [];
+  _miniScheduled = false;
 }
 
 // 清理：销毁 observer（页面切换时调用可减少内存占用）
 export function destroyMiniPreviews() {
-  if (_miniObserver) {
-    _miniObserver.disconnect();
-    _miniObserver = null;
-  }
+  if (_miniObserver) { _miniObserver.disconnect(); _miniObserver = null; }
+  if (_unmountObserver) { _unmountObserver.disconnect(); _unmountObserver = null; }
   _miniPending = [];
   _miniScheduled = false;
   _miniCache.clear();
+}
+
+// ── 卡片 3D 悬浮倾斜（data-card-3d）：轻量、单次全局委托、rAF 节流 ──
+// 仅做一层 3D 视觉反馈，不改变卡片布局、不拦截点击/收藏/下载等交互。
+let _tiltBound = false;
+function bindCardTilt() {
+  if (_tiltBound) return;
+  // 尊重「减少动态效果」系统偏好：开启时完全不绑定，避免眩晕
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  _tiltBound = true;
+  const MAX = 7; // 最大倾斜角度（deg）
+  let raf = null, cur = null;
+  // 复位某卡片的倾斜
+  function reset(card) { if (card) card.style.transform = ''; if (cur === card) cur = null; }
+  document.addEventListener('mousemove', e => {
+    const card = e.target.closest ? e.target.closest('[data-card-3d]') : null;
+    if (!card) { reset(cur); return; }
+    // 跨卡片移动：先复位上一个
+    if (card !== cur) { reset(cur); cur = card; }
+    const r = card.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width - 0.5;   // -0.5 ~ 0.5
+    const py = (e.clientY - r.top) / r.height - 0.5;
+    if (raf) cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      if (!cur) return;
+      const ry = (px * MAX * 2).toFixed(2);
+      const rx = (-py * MAX * 2).toFixed(2);
+      cur.style.transform = `perspective(900px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(-6px)`;
+    });
+  }, { passive: true });
+  // 离开卡片（relatedTarget 不在卡片内）时复位
+  document.addEventListener('mouseout', e => {
+    const card = e.target.closest ? e.target.closest('[data-card-3d]') : null;
+    if (card && !card.contains(e.relatedTarget)) reset(card);
+  });
 }
 
 // 绑定主题切换
@@ -378,5 +469,6 @@ export function initAppShell(active) {
   document.body.insertAdjacentHTML('afterbegin', renderNav(active));
   document.body.insertAdjacentHTML('beforeend', renderFooter());
   bindThemeToggle();
+  bindCardTilt();
   if (!_shortcutsBound) { bindGlobalShortcuts(); _shortcutsBound = true; }
 }

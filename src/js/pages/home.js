@@ -27,12 +27,15 @@ const hero = `
   </div>
 </section>`;
 
+// 预计算各分类模板数（单次遍历），避免在模板字面量里对每个分类都 filter 一次全量数组
+const catCounts = {};
+TEMPLATES.forEach(t => { if (t.cat) catCounts[t.cat] = (catCounts[t.cat] || 0) + 1; });
 const catSection = `
 <section class="max-w-7xl mx-auto px-4 mb-16">
   <h2 class="text-2xl font-bold mb-6">分类导航</h2>
   <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
     ${CATEGORIES.map(c => {
-      const count = TEMPLATES.filter(t => t.cat === c.id).length;
+      const count = catCounts[c.id] || 0;
       return `<a href="categories.html?cat=${c.id}" class="wc-card p-5 hover:-translate-y-1 group">
         <div class="text-3xl mb-2">${c.icon}</div>
         <h3 class="font-semibold">${c.name}</h3>
@@ -49,7 +52,7 @@ const featured = `
     <a href="categories.html" class="text-sm text-brand-600 dark:text-brand-300">查看全部 →</a>
   </div>
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-    ${FEATURED.map(id => templateCard(getById(id), { from: 'home' })).join('')}
+    ${FEATURED.map(id => getById(id)).filter(Boolean).map(t => templateCard(t, { from: 'home' })).join('')}
   </div>
 </section>`;
 
@@ -60,41 +63,32 @@ const hot = `
     <a href="categories.html?sort=hot" class="text-sm text-brand-600 dark:text-brand-300">更多 →</a>
   </div>
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-    ${HOT.map(id => templateCard(getById(id), { from: 'home' })).join('')}
+    ${HOT.map(id => getById(id)).filter(Boolean).map(t => templateCard(t, { from: 'home' })).join('')}
   </div>
 </section>`;
 
 app.innerHTML = hero + catSection + featured + hot;
 
 // ── 滚动入场动画（IntersectionObserver） ──
-const revealObserver = new IntersectionObserver((entries) => {
-  entries.forEach(entry => {
-    if (entry.isIntersecting) {
-      entry.target.classList.add('is-visible');
-      revealObserver.unobserve(entry.target);
-    }
-  });
-}, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+// 尊重「减少动态效果」系统偏好：开启时直接显示最终态、跳过位移动画，避免眩晕。
+const revealEls = app.querySelectorAll('[data-reveal]');
+const prefersReduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+if (prefersReduce) {
+  revealEls.forEach(el => el.classList.add('is-visible'));
+} else {
+  const revealObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('is-visible');
+        revealObserver.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+  revealEls.forEach(el => revealObserver.observe(el));
+}
 
-app.querySelectorAll('[data-reveal]').forEach(el => revealObserver.observe(el));
-
-// ── 3D 卡片悬停效果 ──
-app.querySelectorAll('[data-card-3d]').forEach(card => {
-  card.addEventListener('mousemove', e => {
-    const rect = card.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const cx = rect.width / 2;
-    const cy = rect.height / 2;
-    const rotateX = ((y - cy) / cy) * -8; // 上下倾斜 ±8°
-    const rotateY = ((x - cx) / cx) * 8;   // 左右倾斜 ±8°
-    card.style.transform = `perspective(800px) rotateX(${rotateX.toFixed(1)}deg) rotateY(${rotateY.toFixed(1)}deg) translateY(-4px)`;
-  });
-  card.addEventListener('mouseleave', () => {
-    card.style.transform = '';
-  });
-});
-
+// 3D 卡片悬停倾斜已由 ui.js 的 bindCardTilt() 全局委托统一处理（覆盖所有页面），
+// 此处不再逐卡绑定，避免重复实现与潜在冲突。
 renderMiniPreviews();
 
 const search = document.getElementById('hero-search');
